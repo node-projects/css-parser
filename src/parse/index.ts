@@ -36,6 +36,7 @@ import {
   indexOfArrayWithBracketAndQuoteSupport,
   splitWithBracketAndQuoteSupport,
 } from '../utils/stringSearch';
+import { Lexer } from './lexer';
 
 // http://www.w3.org/TR/CSS21/grammar.html
 // https://github.com/visionmedia/css-parse/pull/49#issuecomment-30088027
@@ -49,38 +50,22 @@ export const parse = (
 ): CssStylesheetAST => {
   options = options || {};
 
-  /**
-   * Positional.
-   */
-  let lineno = 1;
-  let column = 1;
-
-  /**
-   * Update lineno and column based on `str`.
-   */
-  function updatePosition(str: string) {
-    const lines = str.match(/\n/g);
-    if (lines) {
-      lineno += lines.length;
-    }
-    const i = str.lastIndexOf('\n');
-    column = ~i ? str.length - i : column + str.length;
-  }
+  const lexer = new Lexer(css);
 
   /**
    * Mark position and patch `node.position`.
    */
   function position() {
-    const start = { line: lineno, column: column };
+    const start = lexer.getPosition();
     return <T1 extends CssCommonPositionAST>(
       node: Omit<T1, 'position'>,
     ): T1 => {
       (node as T1).position = new Position(
         start,
-        { line: lineno, column: column },
+        lexer.getPosition(),
         options?.source || '',
       );
-      whitespace();
+      lexer.skipWhitespace();
       return node as T1;
     };
   }
@@ -94,9 +79,9 @@ export const parse = (
     const err = new CssParseError(
       options?.source || '',
       msg,
-      lineno,
-      column,
-      css,
+      lexer.lineno,
+      lexer.column,
+      lexer.remaining,
     );
 
     if (options?.silent) {
@@ -128,24 +113,14 @@ export const parse = (
    * Opening brace.
    */
   function open(): boolean {
-    const openMatch = /^{\s*/.exec(css);
-    if (openMatch) {
-      processMatch(openMatch);
-      return true;
-    }
-    return false;
+    return lexer.tryOpenBrace();
   }
 
   /**
    * Closing brace.
    */
-  function close() {
-    const closeMatch = /^}/.exec(css);
-    if (closeMatch) {
-      processMatch(closeMatch);
-      return true;
-    }
-    return false;
+  function close(): boolean {
+    return lexer.tryCloseBrace();
   }
 
   /**
@@ -154,16 +129,15 @@ export const parse = (
   function rules() {
     let node: CssRuleAST | CssAtRuleAST | undefined;
     const rules: Array<CssRuleAST | CssAtRuleAST> = [];
-    whitespace();
+    lexer.skipWhitespace();
     comments(rules);
-    while (css.length) {
-      if (css.charAt(0) === '}') {
+    while (lexer.hasMore) {
+      if (lexer.charAt() === '}') {
         if (options?.silent) {
           // Skip stray closing braces at top level
           error("extra '}'");
-          const fakeMatch = ['}'] as unknown as RegExpExecArray;
-          processMatch(fakeMatch);
-          whitespace();
+          lexer.consume(1);
+          lexer.skipWhitespace();
           comments(rules);
           continue;
         }
@@ -176,9 +150,8 @@ export const parse = (
       } else {
         if (options?.silent) {
           // Skip unrecognized character to recover
-          const fakeMatch = [css.charAt(0)] as unknown as RegExpExecArray;
-          processMatch(fakeMatch);
-          whitespace();
+          lexer.consume(1);
+          lexer.skipWhitespace();
           comments(rules);
           continue;
         }
@@ -189,23 +162,10 @@ export const parse = (
   }
 
   /**
-   * Update position and css string. Return the matches
-   */
-  function processMatch(m: RegExpExecArray) {
-    const str = m[0];
-    updatePosition(str);
-    css = css.slice(str.length);
-    return m;
-  }
-
-  /**
    * Parse whitespace.
    */
   function whitespace() {
-    const m = /^\s*/.exec(css);
-    if (m) {
-      processMatch(m);
-    }
+    lexer.skipWhitespace();
   }
 
   /**
@@ -228,15 +188,14 @@ export const parse = (
    */
   function comment(): CssCommentAST | undefined {
     const pos = position();
-    if ('/' !== css.charAt(0) || '*' !== css.charAt(1)) {
+    if ('/' !== lexer.charAt() || '*' !== lexer.charAt(1)) {
       return;
     }
 
-    const m = /^\/\*[^]*?\*\//.exec(css);
+    const m = lexer.matchRegex(/^\/\*[^]*?\*\//);
     if (!m) {
       return error('End of comment missing');
     }
-    processMatch(m);
 
     return pos<CssCommentAST>({
       type: CssTypes.comment,
@@ -248,13 +207,13 @@ export const parse = (
    * Parse selector.
    */
   function selector() {
-    const bracePos = indexOfArrayWithBracketAndQuoteSupport(css, ['{']);
+    const bracePos = indexOfArrayWithBracketAndQuoteSupport(lexer.remaining, [
+      '{',
+    ]);
     if (bracePos === -1 || bracePos === 0) {
       return;
     }
-    const selectorStr = css.substring(0, bracePos);
-    const fakeMatch = [selectorStr] as unknown as RegExpExecArray;
-    processMatch(fakeMatch);
+    const selectorStr = lexer.consume(bracePos);
 
     // remove comment in selector;
     const res = trim(selectorStr).replace(commentRegex, '');
@@ -269,31 +228,27 @@ export const parse = (
     const pos = position();
 
     // prop
-    const propMatch = /^(\*?[-#/*\\\w]+(\[[0-9a-z_-]+\])?)\s*/.exec(css);
+    const propMatch = lexer.matchRegex(
+      /^(\*?[-#/*\\\w]+(\[[0-9a-z_-]+\])?)\s*/,
+    );
     if (!propMatch) {
       return;
     }
-    processMatch(propMatch);
     const propValue = trim(propMatch[0]);
 
     // :
-    const separatorMatch = /^:\s*/.exec(css);
-    if (!separatorMatch) {
+    if (!lexer.tryColon()) {
       return error("property missing ':'");
     }
-    processMatch(separatorMatch);
 
     // val
     let value = '';
-    const endValuePosition = indexOfArrayWithBracketAndQuoteSupport(css, [
-      ';',
-      '}',
-    ]);
+    const endValuePosition = indexOfArrayWithBracketAndQuoteSupport(
+      lexer.remaining,
+      [';', '}'],
+    );
     if (endValuePosition !== -1) {
-      value = css.substring(0, endValuePosition);
-      const fakeMatch = [value] as unknown as RegExpExecArray;
-      processMatch(fakeMatch);
-
+      value = lexer.consume(endValuePosition);
       value = trim(value).replace(commentRegex, '');
     }
 
@@ -304,10 +259,7 @@ export const parse = (
     });
 
     // ;
-    const endMatch = /^[;\s]*/.exec(css);
-    if (endMatch) {
-      processMatch(endMatch);
-    }
+    lexer.skipSemicolonAndWhitespace();
 
     return ret;
   }
@@ -332,14 +284,12 @@ export const parse = (
       decl = declaration();
     }
     // In silent mode, try to recover from errors by skipping to next semicolon
-    while (options?.silent && css.length && css.charAt(0) !== '}') {
-      const semiPos = css.indexOf(';');
-      const bracePos = css.indexOf('}');
+    while (options?.silent && lexer.hasMore && lexer.charAt() !== '}') {
+      const remaining = lexer.remaining;
+      const semiPos = remaining.indexOf(';');
+      const bracePos = remaining.indexOf('}');
       if (semiPos !== -1 && (bracePos === -1 || semiPos < bracePos)) {
-        const fakeMatch = [
-          css.substring(0, semiPos + 1),
-        ] as unknown as RegExpExecArray;
-        processMatch(fakeMatch);
+        lexer.consume(semiPos + 1);
         whitespace();
         comments(decls);
         decl = declaration();
@@ -364,12 +314,13 @@ export const parse = (
    * ('{' appears before ';' and '}' at the top level).
    */
   function looksLikeNestedRule(): boolean {
-    const bracePos = indexOfArrayWithBracketAndQuoteSupport(css, ['{']);
+    const remaining = lexer.remaining;
+    const bracePos = indexOfArrayWithBracketAndQuoteSupport(remaining, ['{']);
     if (bracePos === -1) {
       return false;
     }
-    const semiPos = indexOfArrayWithBracketAndQuoteSupport(css, [';']);
-    const closePos = indexOfArrayWithBracketAndQuoteSupport(css, ['}']);
+    const semiPos = indexOfArrayWithBracketAndQuoteSupport(remaining, [';']);
+    const closePos = indexOfArrayWithBracketAndQuoteSupport(remaining, ['}']);
 
     if (semiPos !== -1 && semiPos < bracePos) {
       return false;
@@ -394,9 +345,9 @@ export const parse = (
     }
     comments(items);
 
-    while (css.length && css.charAt(0) !== '}') {
+    while (lexer.hasMore && lexer.charAt() !== '}') {
       // nested at-rule
-      if (css.charAt(0) === '@') {
+      if (lexer.charAt() === '@') {
         const ar = atRule();
         if (ar) {
           items.push(ar);
@@ -425,13 +376,11 @@ export const parse = (
 
       // nothing matched — skip to next semicolon or closing brace to recover
       if (options?.silent) {
-        const semiPos = css.indexOf(';');
-        const bracePos = css.indexOf('}');
+        const remaining = lexer.remaining;
+        const semiPos = remaining.indexOf(';');
+        const bracePos = remaining.indexOf('}');
         if (semiPos !== -1 && (bracePos === -1 || semiPos < bracePos)) {
-          const fakeMatch = [
-            css.substring(0, semiPos + 1),
-          ] as unknown as RegExpExecArray;
-          processMatch(fakeMatch);
+          lexer.consume(semiPos + 1);
           whitespace();
           comments(items);
           continue;
@@ -455,9 +404,9 @@ export const parse = (
     const items: Array<CssAtRuleAST | CssDeclarationAST | CssCommentAST> = [];
     whitespace();
     comments(items);
-    while (css.length && css.charAt(0) !== '}') {
+    while (lexer.hasMore && lexer.charAt() !== '}') {
       // at-rule
-      if (css.charAt(0) === '@') {
+      if (lexer.charAt() === '@') {
         const ar = atRule();
         if (ar) {
           items.push(ar);
@@ -486,13 +435,11 @@ export const parse = (
 
       // nothing matched — skip to next semicolon or closing brace to recover
       if (options?.silent) {
-        const semiPos = css.indexOf(';');
-        const bracePos = css.indexOf('}');
+        const remaining = lexer.remaining;
+        const semiPos = remaining.indexOf(';');
+        const bracePos = remaining.indexOf('}');
         if (semiPos !== -1 && (bracePos === -1 || semiPos < bracePos)) {
-          const fakeMatch = [
-            css.substring(0, semiPos + 1),
-          ] as unknown as RegExpExecArray;
-          processMatch(fakeMatch);
+          lexer.consume(semiPos + 1);
           whitespace();
           comments(items);
           continue;
@@ -510,17 +457,11 @@ export const parse = (
     const vals = [];
     const pos = position();
 
-    let m: RegExpExecArray | null = /^((\d+\.\d+|\.\d+|\d+)%?|[a-z]+)\s*/.exec(
-      css,
-    );
+    let m = lexer.matchRegex(/^((\d+\.\d+|\.\d+|\d+)%?|[a-z]+)\s*/);
     while (m) {
-      const res = processMatch(m);
-      vals.push(res[1]);
-      const spacesMatch = /^,\s*/.exec(css);
-      if (spacesMatch) {
-        processMatch(spacesMatch);
-      }
-      m = /^((\d+\.\d+|\.\d+|\d+)%?|[a-z]+)\s*/.exec(css);
+      vals.push(m[1]);
+      lexer.tryCommaAndWhitespace();
+      m = lexer.matchRegex(/^((\d+\.\d+|\.\d+|\d+)%?|[a-z]+)\s*/);
     }
 
     if (!vals.length) {
@@ -539,19 +480,19 @@ export const parse = (
    */
   function atKeyframes(): CssKeyframesAST | undefined {
     const pos = position();
-    const m1 = /^@([-\w]+)?keyframes\s*/.exec(css);
+    const m1 = lexer.matchRegex(/^@([-\w]+)?keyframes\s*/);
 
     if (!m1) {
       return;
     }
-    const vendor = processMatch(m1)[1];
+    const vendor = m1[1];
 
     // identifier
-    const m2 = /^([-\w]+)\s*/.exec(css);
+    const m2 = lexer.matchRegex(/^([-\w]+)\s*/);
     if (!m2) {
       return error('@keyframes missing name');
     }
-    const name = processMatch(m2)[1];
+    const name = m2[1];
 
     if (!open()) {
       return error("@keyframes missing '{'");
@@ -582,12 +523,12 @@ export const parse = (
    */
   function atSupports(): CssSupportsAST | undefined {
     const pos = position();
-    const m = /^@supports *([^{]+)/.exec(css);
+    const m = lexer.matchRegex(/^@supports *([^{]+)/);
 
     if (!m) {
       return;
     }
-    const supports = trim(processMatch(m)[1]);
+    const supports = trim(m[1]);
 
     if (!open()) {
       return error("@supports missing '{'");
@@ -611,12 +552,11 @@ export const parse = (
    */
   function atHost() {
     const pos = position();
-    const m = /^@host\s*/.exec(css);
+    const m = lexer.matchRegex(/^@host\s*/);
 
     if (!m) {
       return;
     }
-    processMatch(m);
 
     if (!open()) {
       return error("@host missing '{'");
@@ -639,12 +579,12 @@ export const parse = (
    */
   function atContainer(): CssContainerAST | undefined {
     const pos = position();
-    const m = /^@container *([^{]+)/.exec(css);
+    const m = lexer.matchRegex(/^@container *([^{]+)/);
 
     if (!m) {
       return;
     }
-    const container = trim(processMatch(m)[1]);
+    const container = trim(m[1]);
 
     if (!open()) {
       return error("@container missing '{'");
@@ -664,22 +604,19 @@ export const parse = (
   }
 
   /**
-   * Parse container.
+   * Parse layer.
    */
   function atLayer(): CssLayerAST | undefined {
     const pos = position();
-    const m = /^@layer *([^{;@]+)/.exec(css);
+    const m = lexer.matchRegex(/^@layer *([^{;@]+)/);
 
     if (!m) {
       return;
     }
-    const layer = trim(processMatch(m)[1]);
+    const layer = trim(m[1]);
 
     if (!open()) {
-      const m2 = /^[;\s]*/.exec(css);
-      if (m2) {
-        processMatch(m2);
-      }
+      lexer.skipSemicolonAndWhitespace();
       return pos<CssLayerAST>({
         type: CssTypes.layer,
         layer: layer,
@@ -704,12 +641,12 @@ export const parse = (
    */
   function atMedia(): CssMediaAST | undefined {
     const pos = position();
-    const m = /^@media *([^{]+)/.exec(css);
+    const m = lexer.matchRegex(/^@media *([^{]+)/);
 
     if (!m) {
       return;
     }
-    const media = trim(processMatch(m)[1]);
+    const media = trim(m[1]);
 
     if (!open()) {
       return error("@media missing '{'");
@@ -733,16 +670,15 @@ export const parse = (
    */
   function atCustomMedia(): CssCustomMediaAST | undefined {
     const pos = position();
-    const m = /^@custom-media\s+(--\S+)\s+([^{;\s][^{;]*);/.exec(css);
+    const m = lexer.matchRegex(/^@custom-media\s+(--\S+)\s+([^{;\s][^{;]*);/);
     if (!m) {
       return;
     }
-    const res = processMatch(m);
 
     return pos<CssCustomMediaAST>({
       type: CssTypes.customMedia,
-      name: trim(res[1]),
-      media: trim(res[2]),
+      name: trim(m[1]),
+      media: trim(m[2]),
     });
   }
 
@@ -773,11 +709,11 @@ export const parse = (
 
   function atPageMarginBox(): CssPageMarginBoxAST | undefined {
     const pos = position();
-    const m = pageMarginBoxRegex.exec(css);
+    const m = lexer.matchRegex(pageMarginBoxRegex);
     if (!m) {
       return;
     }
-    const name = processMatch(m)[1];
+    const name = m[1];
 
     if (!open()) {
       return error(`@${name} missing '{'`);
@@ -805,11 +741,10 @@ export const parse = (
    */
   function atPage(): CssPageAST | undefined {
     const pos = position();
-    const m = /^@page */.exec(css);
+    const m = lexer.matchRegex(/^@page */);
     if (!m) {
       return;
     }
-    processMatch(m);
 
     const sel = selector() || [];
 
@@ -820,8 +755,8 @@ export const parse = (
     comments(decls);
 
     // declarations and nested at-rules (margin boxes)
-    while (css.length && css.charAt(0) !== '}') {
-      if (css.charAt(0) === '@') {
+    while (lexer.hasMore && lexer.charAt() !== '}') {
+      if (lexer.charAt() === '@') {
         const ar = atRule();
         if (ar) {
           decls.push(ar);
@@ -854,14 +789,13 @@ export const parse = (
    */
   function atDocument(): CssDocumentAST | undefined {
     const pos = position();
-    const m = /^@([-\w]+)?document *([^{]+)/.exec(css);
+    const m = lexer.matchRegex(/^@([-\w]+)?document *([^{]+)/);
     if (!m) {
       return;
     }
-    const res = processMatch(m);
 
-    const vendor = trim(res[1]);
-    const doc = trim(res[2]);
+    const vendor = trim(m[1]);
+    const doc = trim(m[2]);
 
     if (!open()) {
       return error("@document missing '{'");
@@ -886,11 +820,10 @@ export const parse = (
    */
   function atFontFace(): CssFontFaceAST | undefined {
     const pos = position();
-    const m = /^@font-face\s*/.exec(css);
+    const m = lexer.matchRegex(/^@font-face\s*/);
     if (!m) {
       return;
     }
-    processMatch(m);
 
     if (!open()) {
       return error("@font-face missing '{'");
@@ -920,11 +853,11 @@ export const parse = (
    */
   function atProperty(): CssPropertyAST | undefined {
     const pos = position();
-    const m = /^@property\s+(--[-\w]+)\s*/.exec(css);
+    const m = lexer.matchRegex(/^@property\s+(--[-\w]+)\s*/);
     if (!m) {
       return;
     }
-    const name = processMatch(m)[1];
+    const name = m[1];
 
     if (!open()) {
       return error("@property missing '{'");
@@ -952,11 +885,11 @@ export const parse = (
    */
   function atCounterStyle(): CssCounterStyleAST | undefined {
     const pos = position();
-    const m = /^@counter-style\s+([-\w]+)\s*/.exec(css);
+    const m = lexer.matchRegex(/^@counter-style\s+([-\w]+)\s*/);
     if (!m) {
       return;
     }
-    const name = processMatch(m)[1];
+    const name = m[1];
 
     if (!open()) {
       return error("@counter-style missing '{'");
@@ -984,11 +917,11 @@ export const parse = (
    */
   function atFontFeatureValues(): CssFontFeatureValuesAST | undefined {
     const pos = position();
-    const m = /^@font-feature-values\s+([^{]+)/.exec(css);
+    const m = lexer.matchRegex(/^@font-feature-values\s+([^{]+)/);
     if (!m) {
       return;
     }
-    const fontFamily = trim(processMatch(m)[1]);
+    const fontFamily = trim(m[1]);
 
     if (!open()) {
       return error("@font-feature-values missing '{'");
@@ -1012,11 +945,11 @@ export const parse = (
    */
   function atScope(): CssScopeAST | undefined {
     const pos = position();
-    const m = /^@scope\s*([^{]*)/.exec(css);
+    const m = lexer.matchRegex(/^@scope\s*([^{]*)/);
     if (!m) {
       return;
     }
-    const scope = trim(processMatch(m)[1]);
+    const scope = trim(m[1]);
 
     if (!open()) {
       return error("@scope missing '{'");
@@ -1040,11 +973,10 @@ export const parse = (
    */
   function atViewTransition(): CssViewTransitionAST | undefined {
     const pos = position();
-    const m = /^@view-transition\s*/.exec(css);
+    const m = lexer.matchRegex(/^@view-transition\s*/);
     if (!m) {
       return;
     }
-    processMatch(m);
 
     if (!open()) {
       return error("@view-transition missing '{'");
@@ -1071,11 +1003,11 @@ export const parse = (
    */
   function atPositionTry(): CssPositionTryAST | undefined {
     const pos = position();
-    const m = /^@position-try\s+(--[-\w]+)\s*/.exec(css);
+    const m = lexer.matchRegex(/^@position-try\s+(--[-\w]+)\s*/);
     if (!m) {
       return;
     }
-    const name = processMatch(m)[1];
+    const name = m[1];
 
     if (!open()) {
       return error("@position-try missing '{'");
@@ -1103,11 +1035,10 @@ export const parse = (
    */
   function atStartingStyle(): CssStartingStyleAST | undefined {
     const pos = position();
-    const m = /^@starting-style\s*/.exec(css);
+    const m = lexer.matchRegex(/^@starting-style\s*/);
     if (!m) {
       return;
     }
-    processMatch(m);
 
     if (!open()) {
       return error("@starting-style missing '{'");
@@ -1151,17 +1082,14 @@ export const parse = (
         '\\s*((?::?[^;\'"]|"(?:\\\\"|[^"])*?"|\'(?:\\\\\'|[^\'])*?\')+)(?:;|$)',
     );
 
-    // ^@import\s*([^;"']|("|')(?:\\\2|.)*?\2)+(;|$)
-
     return (): T1 | undefined => {
       const pos = position();
-      const m = re.exec(css);
+      const m = lexer.matchRegex(re);
       if (!m) {
         return;
       }
-      const res = processMatch(m);
       const ret: Record<string, string> = { type: name };
-      ret[name] = res[1].trim();
+      ret[name] = m[1].trim();
       return pos<T1>(ret as unknown as T1) as T1;
     };
   }
@@ -1172,21 +1100,20 @@ export const parse = (
    */
   function atGeneric(): CssGenericAtRuleAST | undefined {
     const pos = position();
-    const m = /^@([-\w]+)\s*/.exec(css);
+    const m = lexer.matchRegex(/^@([-\w]+)\s*/);
     if (!m) {
       return;
     }
-    const name = processMatch(m)[1];
+    const name = m[1];
 
     // Capture prelude (everything between the name and '{' or ';')
     let prelude = '';
-    const preludeEnd = indexOfArrayWithBracketAndQuoteSupport(css, ['{', ';']);
+    const preludeEnd = indexOfArrayWithBracketAndQuoteSupport(lexer.remaining, [
+      '{',
+      ';',
+    ]);
     if (preludeEnd !== -1 && preludeEnd > 0) {
-      prelude = trim(css.substring(0, preludeEnd));
-      const fakeMatch = [
-        css.substring(0, preludeEnd),
-      ] as unknown as RegExpExecArray;
-      processMatch(fakeMatch);
+      prelude = trim(lexer.consume(preludeEnd));
     }
 
     // Block at-rule
@@ -1206,10 +1133,7 @@ export const parse = (
     }
 
     // Statement at-rule (ends with ';')
-    const endMatch = /^[;\s]*/.exec(css);
-    if (endMatch) {
-      processMatch(endMatch);
-    }
+    lexer.skipSemicolonAndWhitespace();
 
     return pos<CssGenericAtRuleAST>({
       type: CssTypes.atRule,
@@ -1222,7 +1146,7 @@ export const parse = (
    * Parse at rule.
    */
   function atRule(): CssAtRuleAST | undefined {
-    if (css[0] !== '@') {
+    if (lexer.charAt() !== '@') {
       return;
     }
 
