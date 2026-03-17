@@ -221,43 +221,15 @@ class Compiler {
   }
 
   /**
-   * Identity mode: reconstruct the original CSS using stored source offsets.
-   * Falls back to beautified output when offsets are not available.
+   * Identity mode: reconstruct the original CSS using stored source.
+   * Falls back to beautified output when original source is not available.
    */
   private identityCompile(node: CssStylesheetAST): string {
     const source = node.stylesheet.originalSource;
     if (!source) {
       return this.stylesheet(node);
     }
-
-    const allRules = node.stylesheet.rules;
-    if (allRules.length === 0) {
-      return source;
-    }
-
-    // Collect all nodes with valid offsets
-    const nodesWithOffsets: Array<{
-      startOffset: number;
-      endOffset: number;
-    }> = [];
-    for (const rule of allRules) {
-      const pos = (rule as CssCommonPositionAST).position;
-      if (pos?.start?.offset != null && pos?.end?.offset != null) {
-        nodesWithOffsets.push({
-          startOffset: pos.start.offset,
-          endOffset: pos.end.offset,
-        });
-      }
-    }
-
-    if (nodesWithOffsets.length === 0) {
-      return this.stylesheet(node);
-    }
-
-    // Reconstruct: output everything from start to end of last node,
-    // then any trailing text.
-    const lastEnd = nodesWithOffsets[nodesWithOffsets.length - 1].endOffset;
-    return source.slice(0, lastEnd) + source.slice(lastEnd);
+    return source;
   }
 
   /**
@@ -278,8 +250,7 @@ class Compiler {
     }
     return rules.filter((rule) => {
       if (rule.type === CssTypes.rule) {
-        const r = rule as unknown as CssRuleAST;
-        return r.declarations.length > 0;
+        return (rule as CssRuleAST).declarations.length > 0;
       }
       return true;
     });
