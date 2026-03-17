@@ -27,17 +27,22 @@ export const indexOfArrayNonEscaped = (
   search: Array<string>,
   position?: number,
 ): number => {
-  let currentPosition = position;
+  let currentPosition = position ?? 0;
   let maxLoop = MAX_LOOP;
   do {
-    const all = search.map((v) => string.indexOf(v, currentPosition));
-    all.push(string.indexOf('\\', currentPosition));
-    const foundAll = all.filter((v) => v !== -1);
-    if (foundAll.length === 0) {
+    // Find the minimum index across all search terms and backslash
+    // without allocating temporary arrays.
+    let found = string.indexOf('\\', currentPosition);
+    for (let i = 0; i < search.length; i++) {
+      const idx = string.indexOf(search[i], currentPosition);
+      if (idx !== -1 && (found === -1 || idx < found)) {
+        found = idx;
+      }
+    }
+    if (found === -1) {
       return -1;
     }
 
-    const found = Math.min(...foundAll);
     if (string.charCodeAt(found) === Ch_BACKSLASH) {
       currentPosition = found + 2;
       maxLoop--;
@@ -77,23 +82,42 @@ export const indexOfArrayWithBracketAndQuoteSupport = (
   search: Array<string>,
   position?: number,
 ): number => {
-  let currentSearchPosition = position;
+  let currentSearchPosition = position ?? 0;
   let maxLoop = MAX_LOOP;
 
   do {
-    const all = search.map((v) => string.indexOf(v, currentSearchPosition));
+    // Find the minimum index across all search terms plus special characters,
+    // without allocating temporary arrays on each iteration.
+    let firstMatchPos = -1;
 
-    all.push(string.indexOf('(', currentSearchPosition));
-    all.push(string.indexOf('"', currentSearchPosition));
-    all.push(string.indexOf("'", currentSearchPosition));
-    all.push(string.indexOf('\\', currentSearchPosition));
+    for (let i = 0; i < search.length; i++) {
+      const idx = string.indexOf(search[i], currentSearchPosition);
+      if (idx !== -1 && (firstMatchPos === -1 || idx < firstMatchPos)) {
+        firstMatchPos = idx;
+      }
+    }
 
-    const foundAll = all.filter((v) => v !== -1);
-    if (foundAll.length === 0) {
+    const parenIdx = string.indexOf('(', currentSearchPosition);
+    if (parenIdx !== -1 && (firstMatchPos === -1 || parenIdx < firstMatchPos)) {
+      firstMatchPos = parenIdx;
+    }
+    const dqIdx = string.indexOf('"', currentSearchPosition);
+    if (dqIdx !== -1 && (firstMatchPos === -1 || dqIdx < firstMatchPos)) {
+      firstMatchPos = dqIdx;
+    }
+    const sqIdx = string.indexOf("'", currentSearchPosition);
+    if (sqIdx !== -1 && (firstMatchPos === -1 || sqIdx < firstMatchPos)) {
+      firstMatchPos = sqIdx;
+    }
+    const bsIdx = string.indexOf('\\', currentSearchPosition);
+    if (bsIdx !== -1 && (firstMatchPos === -1 || bsIdx < firstMatchPos)) {
+      firstMatchPos = bsIdx;
+    }
+
+    if (firstMatchPos === -1) {
       return -1;
     }
 
-    const firstMatchPos = Math.min(...foundAll);
     const charCode = string.charCodeAt(firstMatchPos);
     switch (charCode) {
       case Ch_BACKSLASH:

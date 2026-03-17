@@ -67,7 +67,7 @@ class Compiler {
       return '';
     }
 
-    return Array(this.level).join(this.indentation);
+    return this.level > 1 ? this.indentation.repeat(this.level - 1) : '';
   }
 
   visit(node: CssAllNodesAST): string {
@@ -143,6 +143,56 @@ class Compiler {
     return buf;
   }
 
+  /**
+   * Emit a block at-rule that contains nested rules (e.g. @media, @supports, @container).
+   */
+  private rulesBlock(
+    header: string,
+    rules: Array<CssAllNodesAST>,
+    position?: CssCommonPositionAST['position'],
+  ) {
+    if (this.compress) {
+      return (
+        this.emit(header, position) +
+        this.emit('{') +
+        this.mapVisit(rules) +
+        this.emit('}')
+      );
+    }
+    return (
+      this.emit(`${this.indent()}${header}`, position) +
+      this.emit(` {\n${this.indent(1)}`) +
+      this.mapVisit(rules, '\n\n') +
+      this.emit(`\n${this.indent(-1)}${this.indent()}}`)
+    );
+  }
+
+  /**
+   * Emit a block at-rule that contains declarations (e.g. @font-face, @property).
+   */
+  private declsBlock(
+    header: string,
+    declarations: Array<CssAllNodesAST>,
+    position?: CssCommonPositionAST['position'],
+  ) {
+    if (this.compress) {
+      return (
+        this.emit(header, position) +
+        this.emit('{') +
+        this.mapVisit(declarations) +
+        this.emit('}')
+      );
+    }
+    return (
+      this.emit(`${header} `, position) +
+      this.emit('{\n') +
+      this.emit(this.indent(1)) +
+      this.mapVisit(declarations, '\n') +
+      this.emit(this.indent(-1)) +
+      this.emit('\n}')
+    );
+  }
+
   compile(node: CssStylesheetAST) {
     if (this.compress) {
       return node.stylesheet.rules.map(this.visit, this).join('');
@@ -172,19 +222,10 @@ class Compiler {
    * Visit container node.
    */
   container(node: CssContainerAST) {
-    if (this.compress) {
-      return (
-        this.emit(`@container ${node.container}`, node.position) +
-        this.emit('{') +
-        this.mapVisit(node.rules) +
-        this.emit('}')
-      );
-    }
-    return (
-      this.emit(`${this.indent()}@container ${node.container}`, node.position) +
-      this.emit(` {\n${this.indent(1)}`) +
-      this.mapVisit(node.rules, '\n\n') +
-      this.emit(`\n${this.indent(-1)}${this.indent()}}`)
+    return this.rulesBlock(
+      `@container ${node.container}`,
+      node.rules,
+      node.position,
     );
   }
 
@@ -223,20 +264,7 @@ class Compiler {
    * Visit media node.
    */
   media(node: CssMediaAST) {
-    if (this.compress) {
-      return (
-        this.emit(`@media ${node.media}`, node.position) +
-        this.emit('{') +
-        this.mapVisit(node.rules) +
-        this.emit('}')
-      );
-    }
-    return (
-      this.emit(`${this.indent()}@media ${node.media}`, node.position) +
-      this.emit(` {\n${this.indent(1)}`) +
-      this.mapVisit(node.rules, '\n\n') +
-      this.emit(`\n${this.indent(-1)}${this.indent()}}`)
-    );
+    return this.rulesBlock(`@media ${node.media}`, node.rules, node.position);
   }
 
   /**
@@ -275,42 +303,20 @@ class Compiler {
   }
 
   /**
-   * Visit container node.
+   * Visit starting-style node.
    */
   startingStyle(node: CssStartingStyleAST) {
-    if (this.compress) {
-      return (
-        this.emit('@starting-style', node.position) +
-        this.emit('{') +
-        this.mapVisit(node.rules) +
-        this.emit('}')
-      );
-    }
-    return (
-      this.emit(`${this.indent()}@starting-style`, node.position) +
-      this.emit(` {\n${this.indent(1)}`) +
-      this.mapVisit(node.rules, '\n\n') +
-      this.emit(`\n${this.indent(-1)}${this.indent()}}`)
-    );
+    return this.rulesBlock('@starting-style', node.rules, node.position);
   }
 
   /**
    * Visit supports node.
    */
   supports(node: CssSupportsAST) {
-    if (this.compress) {
-      return (
-        this.emit(`@supports ${node.supports}`, node.position) +
-        this.emit('{') +
-        this.mapVisit(node.rules) +
-        this.emit('}')
-      );
-    }
-    return (
-      this.emit(`${this.indent()}@supports ${node.supports}`, node.position) +
-      this.emit(` {\n${this.indent(1)}`) +
-      this.mapVisit(node.rules, '\n\n') +
-      this.emit(`\n${this.indent(-1)}${this.indent()}}`)
+    return this.rulesBlock(
+      `@supports ${node.supports}`,
+      node.rules,
+      node.position,
     );
   }
 
@@ -412,22 +418,7 @@ class Compiler {
    * Visit font-face node.
    */
   fontFace(node: CssFontFaceAST) {
-    if (this.compress) {
-      return (
-        this.emit('@font-face', node.position) +
-        this.emit('{') +
-        this.mapVisit(node.declarations) +
-        this.emit('}')
-      );
-    }
-    return (
-      this.emit('@font-face ', node.position) +
-      this.emit('{\n') +
-      this.emit(this.indent(1)) +
-      this.mapVisit(node.declarations, '\n') +
-      this.emit(this.indent(-1)) +
-      this.emit('\n}')
-    );
+    return this.declsBlock('@font-face', node.declarations, node.position);
   }
 
   /**
@@ -464,21 +455,10 @@ class Compiler {
    * Visit @property node.
    */
   property(node: CssPropertyAST) {
-    if (this.compress) {
-      return (
-        this.emit(`@property ${node.name}`, node.position) +
-        this.emit('{') +
-        this.mapVisit(node.declarations) +
-        this.emit('}')
-      );
-    }
-    return (
-      this.emit(`@property ${node.name} `, node.position) +
-      this.emit('{\n') +
-      this.emit(this.indent(1)) +
-      this.mapVisit(node.declarations, '\n') +
-      this.emit(this.indent(-1)) +
-      this.emit('\n}')
+    return this.declsBlock(
+      `@property ${node.name}`,
+      node.declarations,
+      node.position,
     );
   }
 
@@ -486,21 +466,10 @@ class Compiler {
    * Visit @counter-style node.
    */
   counterStyle(node: CssCounterStyleAST) {
-    if (this.compress) {
-      return (
-        this.emit(`@counter-style ${node.name}`, node.position) +
-        this.emit('{') +
-        this.mapVisit(node.declarations) +
-        this.emit('}')
-      );
-    }
-    return (
-      this.emit(`@counter-style ${node.name} `, node.position) +
-      this.emit('{\n') +
-      this.emit(this.indent(1)) +
-      this.mapVisit(node.declarations, '\n') +
-      this.emit(this.indent(-1)) +
-      this.emit('\n}')
+    return this.declsBlock(
+      `@counter-style ${node.name}`,
+      node.declarations,
+      node.position,
     );
   }
 
@@ -508,22 +477,10 @@ class Compiler {
    * Visit @font-feature-values node.
    */
   fontFeatureValues(node: CssFontFeatureValuesAST) {
-    if (this.compress) {
-      return (
-        this.emit(`@font-feature-values ${node.fontFamily}`, node.position) +
-        this.emit('{') +
-        this.mapVisit(node.rules) +
-        this.emit('}')
-      );
-    }
-    return (
-      this.emit(
-        `${this.indent()}@font-feature-values ${node.fontFamily}`,
-        node.position,
-      ) +
-      this.emit(` {\n${this.indent(1)}`) +
-      this.mapVisit(node.rules, '\n\n') +
-      this.emit(`\n${this.indent(-1)}${this.indent()}}`)
+    return this.rulesBlock(
+      `@font-feature-values ${node.fontFamily}`,
+      node.rules,
+      node.position,
     );
   }
 
@@ -532,41 +489,17 @@ class Compiler {
    */
   scope(node: CssScopeAST) {
     const prelude = node.scope ? ` ${node.scope}` : '';
-    if (this.compress) {
-      return (
-        this.emit(`@scope${prelude}`, node.position) +
-        this.emit('{') +
-        this.mapVisit(node.rules) +
-        this.emit('}')
-      );
-    }
-    return (
-      this.emit(`${this.indent()}@scope${prelude}`, node.position) +
-      this.emit(` {\n${this.indent(1)}`) +
-      this.mapVisit(node.rules, '\n\n') +
-      this.emit(`\n${this.indent(-1)}${this.indent()}}`)
-    );
+    return this.rulesBlock(`@scope${prelude}`, node.rules, node.position);
   }
 
   /**
    * Visit @view-transition node.
    */
   viewTransition(node: CssViewTransitionAST) {
-    if (this.compress) {
-      return (
-        this.emit('@view-transition', node.position) +
-        this.emit('{') +
-        this.mapVisit(node.declarations) +
-        this.emit('}')
-      );
-    }
-    return (
-      this.emit('@view-transition ', node.position) +
-      this.emit('{\n') +
-      this.emit(this.indent(1)) +
-      this.mapVisit(node.declarations, '\n') +
-      this.emit(this.indent(-1)) +
-      this.emit('\n}')
+    return this.declsBlock(
+      '@view-transition',
+      node.declarations,
+      node.position,
     );
   }
 
@@ -574,21 +507,10 @@ class Compiler {
    * Visit @position-try node.
    */
   positionTry(node: CssPositionTryAST) {
-    if (this.compress) {
-      return (
-        this.emit(`@position-try ${node.name}`, node.position) +
-        this.emit('{') +
-        this.mapVisit(node.declarations) +
-        this.emit('}')
-      );
-    }
-    return (
-      this.emit(`@position-try ${node.name} `, node.position) +
-      this.emit('{\n') +
-      this.emit(this.indent(1)) +
-      this.mapVisit(node.declarations, '\n') +
-      this.emit(this.indent(-1)) +
-      this.emit('\n}')
+    return this.declsBlock(
+      `@position-try ${node.name}`,
+      node.declarations,
+      node.position,
     );
   }
 
