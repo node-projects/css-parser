@@ -32,6 +32,16 @@ const formatted = stringify(ast, { indent: '  ' })
 // Minify output
 const minified = stringify(ast, { compress: true })
 // => "body{font-size:12px}"
+
+// Identity mode: round-trip CSS exactly as written
+const original = 'body  { font-size:  12px;  }'
+const ast2 = parse(original, { preserveFormatting: true })
+stringify(ast2, { identity: true }) === original // true
+
+// Remove empty rules
+const ast3 = parse('.empty {} .keep { color: red; }')
+stringify(ast3, { removeEmptyRules: true })
+// => ".keep {\n  color: red;\n}"
 ```
 
 ## API
@@ -45,6 +55,7 @@ Parses CSS code and returns an Abstract Syntax Tree (AST).
 - `options` (object, optional) - Parsing options
   - `silent` (boolean) - Silently fail on parse errors instead of throwing
   - `source` (string) - File path for better error reporting
+  - `preserveFormatting` (boolean) - Store source offsets and original CSS text for identity round-trip (default: `false`)
 
 **Returns:** `CssStylesheetAST` - The parsed CSS as an AST
 
@@ -57,6 +68,8 @@ Converts a CSS AST back to CSS string with configurable formatting.
 - `options` (object, optional) - Stringification options
   - `indent` (string) - Indentation string (default: `'  '`)
   - `compress` (boolean) - Whether to compress/minify the output (default: `false`)
+  - `identity` (boolean) - Reproduce the original CSS exactly as parsed; requires `preserveFormatting` during parsing (default: `false`)
+  - `removeEmptyRules` (boolean) - Remove rules with empty declaration blocks (default: `false`)
 
 **Returns:** `string` - The formatted CSS string
 
@@ -65,7 +78,9 @@ Converts a CSS AST back to CSS string with configurable formatting.
 - **Complete CSS Support**: All standard CSS features including selectors, properties, values, at-rules, and comments
 - **TypeScript Support**: Full type definitions for all AST nodes and functions
 - **Error Handling**: Configurable error handling with detailed position information
-- **Formatting Options**: Pretty print, minify, or custom formatting
+- **Formatting Options**: Pretty print, minify, identity (round-trip), or custom formatting
+- **Identity Round-Trip**: Parse and stringify CSS back to the exact original formatting
+- **Empty Rule Removal**: Optionally strip rules with empty declaration blocks
 - **Performance Optimized**: Efficient parsing and stringification for large CSS files
 - **Source Maps**: Track original source positions for debugging and tooling
 

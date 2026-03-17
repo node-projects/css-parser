@@ -18,11 +18,13 @@ Position information for the node in the source code:
 
 ```typescript
 {
-  start: { line: number; column: number };
-  end: { line: number; column: number };
+  start: { line: number; column: number; offset?: number };
+  end: { line: number; column: number; offset?: number };
   source?: string;
 }
 ```
+
+The `offset` field is a character offset into the original source string, present when `preserveFormatting: true` is used during parsing.
 
 ### `parent` (optional)
 
@@ -38,6 +40,7 @@ The root node representing an entire CSS document.
 - `stylesheet.source` (optional): Source file path
 - `stylesheet.rules`: Array of top-level rules
 - `stylesheet.parsingErrors` (optional): Array of parse errors when `silent` option is used
+- `stylesheet.originalSource` (optional): The original CSS source string, present when `preserveFormatting: true` is used during parsing
 
 **Example:**
 ```json

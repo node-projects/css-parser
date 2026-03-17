@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Add `preserveFormatting` parser option to store source character offsets and original CSS text on the AST
+- Add `identity` compiler option to reproduce original CSS exactly as parsed (round-trip fidelity)
+- Add `removeEmptyRules` compiler option to strip rules with empty declaration blocks
+- Add optional `offset` field to position `start`/`end` for source reconstruction
+- Add `originalSource` field to `CssStylesheetAST` for identity mode
+- Export `CompilerOptions` and `ParseOptions` types from the public API
+
 ## [4.4.4] - 2025-07-22
 
 ### Changed
