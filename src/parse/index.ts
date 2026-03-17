@@ -70,6 +70,38 @@ const re_positionTry = /@position-try\s+(--[-\w]+)\s*/y;
 const re_startingStyle = /@starting-style\s*/y;
 const re_genericAtRule = /@([-\w]+)\s*/y;
 
+// Pre-compiled page margin box regex (moved to module scope to avoid re-creation)
+const pageMarginBoxNames = [
+  'top-left-corner',
+  'top-left',
+  'top-center',
+  'top-right',
+  'top-right-corner',
+  'bottom-left-corner',
+  'bottom-left',
+  'bottom-center',
+  'bottom-right',
+  'bottom-right-corner',
+  'left-top',
+  'left-middle',
+  'left-bottom',
+  'right-top',
+  'right-middle',
+  'right-bottom',
+];
+const re_pageMarginBox = new RegExp(
+  `@(${pageMarginBoxNames.join('|')})(?![\\w-])\\s*`,
+  'y',
+);
+
+// Pre-compiled non-block at-rule regexes
+const re_atImport =
+  /@import\s*((?::?[^;'"]|"(?:\\"|[^"])*?"|'(?:\\'|[^'])*?')+)(?:;|$)/y;
+const re_atCharset =
+  /@charset\s*((?::?[^;'"]|"(?:\\"|[^"])*?"|'(?:\\'|[^'])*?')+)(?:;|$)/y;
+const re_atNamespace =
+  /@namespace\s*((?::?[^;'"]|"(?:\\"|[^"])*?"|'(?:\\'|[^'])*?')+)(?:;|$)/y;
+
 export const parse = (
   css: string,
   options?: { source?: string; silent?: boolean },
@@ -713,32 +745,9 @@ export const parse = (
   /**
    * Parse @page margin box at-rules (@top-left, @bottom-right, @left-middle, etc.).
    */
-  const pageMarginBoxNames = [
-    'top-left-corner',
-    'top-left',
-    'top-center',
-    'top-right',
-    'top-right-corner',
-    'bottom-left-corner',
-    'bottom-left',
-    'bottom-center',
-    'bottom-right',
-    'bottom-right-corner',
-    'left-top',
-    'left-middle',
-    'left-bottom',
-    'right-top',
-    'right-middle',
-    'right-bottom',
-  ];
-  const pageMarginBoxRegex = new RegExp(
-    `@(${pageMarginBoxNames.join('|')})(?![\\w-])\\s*`,
-    'y',
-  );
-
   function atPageMarginBox(): CssPageMarginBoxAST | undefined {
     const pos = position();
-    const m = lexer.matchRegex(pageMarginBoxRegex);
+    const m = lexer.matchRegex(re_pageMarginBox);
     if (!m) {
       return;
     }
@@ -1087,41 +1096,46 @@ export const parse = (
   /**
    * Parse import
    */
-  const atImport = _compileAtRule<CssImportAST>('import');
+  function atImport(): CssImportAST | undefined {
+    const pos = position();
+    const m = lexer.matchRegex(re_atImport);
+    if (!m) {
+      return;
+    }
+    return pos<CssImportAST>({
+      type: CssTypes.import,
+      import: m[1].trim(),
+    } as unknown as CssImportAST) as CssImportAST;
+  }
 
   /**
    * Parse charset
    */
-  const atCharset = _compileAtRule<CssCharsetAST>('charset');
+  function atCharset(): CssCharsetAST | undefined {
+    const pos = position();
+    const m = lexer.matchRegex(re_atCharset);
+    if (!m) {
+      return;
+    }
+    return pos<CssCharsetAST>({
+      type: CssTypes.charset,
+      charset: m[1].trim(),
+    } as unknown as CssCharsetAST) as CssCharsetAST;
+  }
 
   /**
    * Parse namespace
    */
-  const atNamespace = _compileAtRule<CssNamespaceAST>('namespace');
-
-  /**
-   * Parse non-block at-rules
-   */
-  function _compileAtRule<T1 extends CssCommonPositionAST>(
-    name: string,
-  ): () => T1 | undefined {
-    const re = new RegExp(
-      '@' +
-        name +
-        '\\s*((?::?[^;\'"]|"(?:\\\\"|[^"])*?"|\'(?:\\\\\'|[^\'])*?\')+)(?:;|$)',
-      'y',
-    );
-
-    return (): T1 | undefined => {
-      const pos = position();
-      const m = lexer.matchRegex(re);
-      if (!m) {
-        return;
-      }
-      const ret: Record<string, string> = { type: name };
-      ret[name] = m[1].trim();
-      return pos<T1>(ret as unknown as T1) as T1;
-    };
+  function atNamespace(): CssNamespaceAST | undefined {
+    const pos = position();
+    const m = lexer.matchRegex(re_atNamespace);
+    if (!m) {
+      return;
+    }
+    return pos<CssNamespaceAST>({
+      type: CssTypes.namespace,
+      namespace: m[1].trim(),
+    } as unknown as CssNamespaceAST) as CssNamespaceAST;
   }
 
   /**
