@@ -266,13 +266,15 @@ export const parse = (
    * Parse selector.
    */
   function selector() {
-    const bracePos = indexOfArrayWithBracketAndQuoteSupport(lexer.remaining, [
-      '{',
-    ]);
-    if (bracePos === -1 || bracePos === 0) {
+    const absPos = indexOfArrayWithBracketAndQuoteSupport(
+      lexer.input,
+      ['{'],
+      lexer.pos,
+    );
+    if (absPos === -1 || absPos === lexer.pos) {
       return;
     }
-    const selectorStr = lexer.consume(bracePos);
+    const selectorStr = lexer.consumeTo(absPos);
 
     // remove comment in selector;
     const res = trim(selectorStr).replace(commentRegex, '');
@@ -300,12 +302,13 @@ export const parse = (
 
     // val
     let value = '';
-    const endValuePosition = indexOfArrayWithBracketAndQuoteSupport(
-      lexer.remaining,
+    const absEndPos = indexOfArrayWithBracketAndQuoteSupport(
+      lexer.input,
       [';', '}'],
+      lexer.pos,
     );
-    if (endValuePosition !== -1) {
-      value = lexer.consume(endValuePosition);
+    if (absEndPos !== -1) {
+      value = lexer.consumeTo(absEndPos);
       value = trim(value).replace(commentRegex, '');
     }
 
@@ -346,11 +349,10 @@ export const parse = (
       lexer.hasMore &&
       lexer.charCodeAt() !== Ch_CLOSE
     ) {
-      const remaining = lexer.remaining;
-      const semiPos = remaining.indexOf(';');
-      const bracePos = remaining.indexOf('}');
+      const semiPos = lexer.input.indexOf(';', lexer.pos);
+      const bracePos = lexer.input.indexOf('}', lexer.pos);
       if (semiPos !== -1 && (bracePos === -1 || semiPos < bracePos)) {
-        lexer.consume(semiPos + 1);
+        lexer.consumeTo(semiPos + 1);
         whitespace();
         comments(decls);
         decl = declaration();
@@ -375,13 +377,25 @@ export const parse = (
    * ('{' appears before ';' and '}' at the top level).
    */
   function looksLikeNestedRule(): boolean {
-    const remaining = lexer.remaining;
-    const bracePos = indexOfArrayWithBracketAndQuoteSupport(remaining, ['{']);
+    const pos = lexer.pos;
+    const bracePos = indexOfArrayWithBracketAndQuoteSupport(
+      lexer.input,
+      ['{'],
+      pos,
+    );
     if (bracePos === -1) {
       return false;
     }
-    const semiPos = indexOfArrayWithBracketAndQuoteSupport(remaining, [';']);
-    const closePos = indexOfArrayWithBracketAndQuoteSupport(remaining, ['}']);
+    const semiPos = indexOfArrayWithBracketAndQuoteSupport(
+      lexer.input,
+      [';'],
+      pos,
+    );
+    const closePos = indexOfArrayWithBracketAndQuoteSupport(
+      lexer.input,
+      ['}'],
+      pos,
+    );
 
     if (semiPos !== -1 && semiPos < bracePos) {
       return false;
@@ -437,11 +451,10 @@ export const parse = (
 
       // nothing matched — skip to next semicolon or closing brace to recover
       if (options?.silent) {
-        const remaining = lexer.remaining;
-        const semiPos = remaining.indexOf(';');
-        const bracePos = remaining.indexOf('}');
+        const semiPos = lexer.input.indexOf(';', lexer.pos);
+        const bracePos = lexer.input.indexOf('}', lexer.pos);
         if (semiPos !== -1 && (bracePos === -1 || semiPos < bracePos)) {
-          lexer.consume(semiPos + 1);
+          lexer.consumeTo(semiPos + 1);
           whitespace();
           comments(items);
           continue;
@@ -496,11 +509,10 @@ export const parse = (
 
       // nothing matched — skip to next semicolon or closing brace to recover
       if (options?.silent) {
-        const remaining = lexer.remaining;
-        const semiPos = remaining.indexOf(';');
-        const bracePos = remaining.indexOf('}');
+        const semiPos = lexer.input.indexOf(';', lexer.pos);
+        const bracePos = lexer.input.indexOf('}', lexer.pos);
         if (semiPos !== -1 && (bracePos === -1 || semiPos < bracePos)) {
-          lexer.consume(semiPos + 1);
+          lexer.consumeTo(semiPos + 1);
           whitespace();
           comments(items);
           continue;
@@ -559,11 +571,11 @@ export const parse = (
       return error("@keyframes missing '{'");
     }
 
-    let frames: Array<CssKeyframeAST | CssCommentAST> = comments();
+    const frames: Array<CssKeyframeAST | CssCommentAST> = comments();
     let frame: CssKeyframeAST | undefined = keyframe();
     while (frame) {
       frames.push(frame);
-      frames = frames.concat(comments());
+      comments(frames);
       frame = keyframe();
     }
 
@@ -757,11 +769,11 @@ export const parse = (
     if (!open()) {
       return error(`@${name} missing '{'`);
     }
-    let decls = comments<CssDeclarationAST>();
+    const decls = comments<CssDeclarationAST>();
     let decl: CssDeclarationAST | undefined = declaration();
     while (decl) {
       decls.push(decl);
-      decls = decls.concat(comments());
+      comments(decls);
       decl = declaration();
     }
     if (!close()) {
@@ -867,13 +879,13 @@ export const parse = (
     if (!open()) {
       return error("@font-face missing '{'");
     }
-    let decls = comments<CssDeclarationAST>();
+    const decls = comments<CssDeclarationAST>();
 
     // declarations
     let decl: CssDeclarationAST | undefined = declaration();
     while (decl) {
       decls.push(decl);
-      decls = decls.concat(comments());
+      comments(decls);
       decl = declaration();
     }
 
@@ -901,11 +913,11 @@ export const parse = (
     if (!open()) {
       return error("@property missing '{'");
     }
-    let decls = comments<CssDeclarationAST>();
+    const decls = comments<CssDeclarationAST>();
     let decl: CssDeclarationAST | undefined = declaration();
     while (decl) {
       decls.push(decl);
-      decls = decls.concat(comments());
+      comments(decls);
       decl = declaration();
     }
     if (!close()) {
@@ -933,11 +945,11 @@ export const parse = (
     if (!open()) {
       return error("@counter-style missing '{'");
     }
-    let decls = comments<CssDeclarationAST>();
+    const decls = comments<CssDeclarationAST>();
     let decl: CssDeclarationAST | undefined = declaration();
     while (decl) {
       decls.push(decl);
-      decls = decls.concat(comments());
+      comments(decls);
       decl = declaration();
     }
     if (!close()) {
@@ -1020,11 +1032,11 @@ export const parse = (
     if (!open()) {
       return error("@view-transition missing '{'");
     }
-    let decls = comments<CssDeclarationAST>();
+    const decls = comments<CssDeclarationAST>();
     let decl: CssDeclarationAST | undefined = declaration();
     while (decl) {
       decls.push(decl);
-      decls = decls.concat(comments());
+      comments(decls);
       decl = declaration();
     }
     if (!close()) {
@@ -1051,11 +1063,11 @@ export const parse = (
     if (!open()) {
       return error("@position-try missing '{'");
     }
-    let decls = comments<CssDeclarationAST>();
+    const decls = comments<CssDeclarationAST>();
     let decl: CssDeclarationAST | undefined = declaration();
     while (decl) {
       decls.push(decl);
-      decls = decls.concat(comments());
+      comments(decls);
       decl = declaration();
     }
     if (!close()) {
@@ -1153,12 +1165,13 @@ export const parse = (
 
     // Capture prelude (everything between the name and '{' or ';')
     let prelude = '';
-    const preludeEnd = indexOfArrayWithBracketAndQuoteSupport(lexer.remaining, [
-      '{',
-      ';',
-    ]);
-    if (preludeEnd !== -1 && preludeEnd > 0) {
-      prelude = trim(lexer.consume(preludeEnd));
+    const preludeEnd = indexOfArrayWithBracketAndQuoteSupport(
+      lexer.input,
+      ['{', ';'],
+      lexer.pos,
+    );
+    if (preludeEnd !== -1 && preludeEnd > lexer.pos) {
+      prelude = trim(lexer.consumeTo(preludeEnd));
     }
 
     // Block at-rule
@@ -1252,6 +1265,8 @@ function trim(str: string) {
 
 /**
  * Adds non-enumerable parent node reference to each node.
+ * Only recurses into array and object properties that can contain child nodes,
+ * skipping primitive values and known leaf objects (Position, etc.).
  */
 function addParent<T1 extends { type?: string }>(
   obj: T1,
@@ -1263,11 +1278,15 @@ function addParent<T1 extends { type?: string }>(
   for (const k in obj) {
     const value = obj[k];
     if (Array.isArray(value)) {
-      value.forEach((v) => {
-        addParent(v, childParent);
-      });
-    } else if (value && typeof value === 'object') {
-      addParent(value, childParent);
+      for (let i = 0; i < value.length; i++) {
+        addParent(value[i], childParent);
+      }
+    } else if (
+      value &&
+      typeof value === 'object' &&
+      !(value instanceof Position)
+    ) {
+      addParent(value as T1, childParent);
     }
   }
 
