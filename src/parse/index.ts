@@ -94,7 +94,8 @@ const re_pageMarginBox = new RegExp(
   'y',
 );
 
-// Pre-compiled non-block at-rule regexes
+// Pre-compiled non-block at-rule regexes.
+// NOTE: these patterns are inherited from the original _compileAtRule factory.
 const re_atImport =
   /@import\s*((?::?[^;'"]|"(?:\\"|[^"])*?"|'(?:\\'|[^'])*?')+)(?:;|$)/y;
 const re_atCharset =
