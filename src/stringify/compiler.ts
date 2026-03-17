@@ -134,9 +134,12 @@ class Compiler {
     delim = delim || '';
 
     for (let i = 0, length = nodes.length; i < length; i++) {
-      buf += this.visit(nodes[i]);
-      if (delim && i < length - 1) {
-        buf += this.emit(delim);
+      const str = this.visit(nodes[i]);
+      if (str) {
+        if (delim && buf) {
+          buf += this.emit(delim);
+        }
+        buf += str;
       }
     }
 
@@ -598,17 +601,19 @@ class Compiler {
         this.emit(';')
       );
     }
-    if (node.property === 'grid-template-areas')
+    if (node.property === 'grid-template-areas') {
+      const indent = this.indent();
+      const pad = indent.length + node.property.length + 2; // 2 for ": "
+      const parts = node.value.split('\n');
+      const aligned = parts
+        .map((p, i) => (i === 0 ? p : ' '.repeat(pad) + p.trimStart()))
+        .join('\n');
       return (
-        this.emit(this.indent()) +
-        this.emit(
-          node.property +
-            ': ' +
-            node.value.split('\n').join('\n'.padEnd(22) + this.indent()),
-          node.position,
-        ) +
+        this.emit(indent) +
+        this.emit(`${node.property}: ${aligned}`, node.position) +
         this.emit(';')
       );
+    }
     return (
       this.emit(this.indent()) +
       this.emit(`${node.property}: ${node.value}`, node.position) +
