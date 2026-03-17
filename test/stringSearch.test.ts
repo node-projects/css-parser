@@ -3,7 +3,7 @@ import {
   indexOfArrayWithBracketAndQuoteSupport,
   MAX_LOOP,
   splitWithBracketAndQuoteSupport,
-} from './stringSearch';
+} from '../src/utils/stringSearch';
 
 describe('indexOfArrayNonEscaped', () => {
   it('should find first non-escaped occurrence', () => {
