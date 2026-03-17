@@ -6,6 +6,7 @@ export enum CssTypes {
   rule = 'rule',
   declaration = 'declaration',
   comment = 'comment',
+  whitespace = 'whitespace',
   atRule = 'at-rule',
   container = 'container',
   charset = 'charset',
@@ -40,26 +41,37 @@ export type CssCommonPositionAST = CssCommonAST & {
   parent?: unknown;
 };
 
+export type CssWhitespaceAST = CssCommonAST & {
+  type: CssTypes.whitespace;
+  value: string;
+  position?: Position;
+  parent?: unknown;
+};
+
 export type CssStylesheetAST = CssCommonAST & {
   type: CssTypes.stylesheet;
   stylesheet: {
     source?: string;
-    rules: Array<CssAtRuleAST>;
+    rules: Array<CssAtRuleAST | CssWhitespaceAST>;
     parsingErrors?: Array<CssParseError>;
-    originalSource?: string;
   };
 };
 
 export type CssRuleAST = CssCommonPositionAST & {
   type: CssTypes.rule;
   selectors: Array<string>;
-  declarations: Array<CssDeclarationAST | CssCommentAST | CssAtRuleAST>;
+  declarations: Array<
+    CssDeclarationAST | CssCommentAST | CssAtRuleAST | CssWhitespaceAST
+  >;
+  rawPrelude?: string;
 };
 
 export type CssDeclarationAST = CssCommonPositionAST & {
   type: CssTypes.declaration;
   property: string;
   value: string;
+  rawBetween?: string;
+  rawValue?: string;
 };
 
 export type CssCommentAST = CssCommonPositionAST & {
@@ -69,7 +81,8 @@ export type CssCommentAST = CssCommonPositionAST & {
 export type CssContainerAST = CssCommonPositionAST & {
   type: CssTypes.container;
   container: string;
-  rules: Array<CssAtRuleAST | CssDeclarationAST>;
+  rules: Array<CssAtRuleAST | CssDeclarationAST | CssWhitespaceAST>;
+  rawPrelude?: string;
 };
 
 export type CssCharsetAST = CssCommonPositionAST & {
@@ -85,15 +98,18 @@ export type CssDocumentAST = CssCommonPositionAST & {
   type: CssTypes.document;
   document: string;
   vendor?: string;
-  rules: Array<CssAtRuleAST | CssDeclarationAST>;
+  rules: Array<CssAtRuleAST | CssDeclarationAST | CssWhitespaceAST>;
+  rawPrelude?: string;
 };
 export type CssFontFaceAST = CssCommonPositionAST & {
   type: CssTypes.fontFace;
-  declarations: Array<CssDeclarationAST | CssCommentAST>;
+  declarations: Array<CssDeclarationAST | CssCommentAST | CssWhitespaceAST>;
+  rawPrelude?: string;
 };
 export type CssHostAST = CssCommonPositionAST & {
   type: CssTypes.host;
-  rules: Array<CssAtRuleAST | CssDeclarationAST>;
+  rules: Array<CssAtRuleAST | CssDeclarationAST | CssWhitespaceAST>;
+  rawPrelude?: string;
 };
 export type CssImportAST = CssCommonPositionAST & {
   type: CssTypes.import;
@@ -103,22 +119,26 @@ export type CssKeyframesAST = CssCommonPositionAST & {
   type: CssTypes.keyframes;
   name: string;
   vendor?: string;
-  keyframes: Array<CssKeyframeAST | CssCommentAST>;
+  keyframes: Array<CssKeyframeAST | CssCommentAST | CssWhitespaceAST>;
+  rawPrelude?: string;
 };
 export type CssKeyframeAST = CssCommonPositionAST & {
   type: CssTypes.keyframe;
   values: Array<string>;
-  declarations: Array<CssDeclarationAST | CssCommentAST>;
+  declarations: Array<CssDeclarationAST | CssCommentAST | CssWhitespaceAST>;
+  rawPrelude?: string;
 };
 export type CssLayerAST = CssCommonPositionAST & {
   type: CssTypes.layer;
   layer: string;
-  rules?: Array<CssAtRuleAST | CssDeclarationAST>;
+  rules?: Array<CssAtRuleAST | CssDeclarationAST | CssWhitespaceAST>;
+  rawPrelude?: string;
 };
 export type CssMediaAST = CssCommonPositionAST & {
   type: CssTypes.media;
   media: string;
-  rules: Array<CssAtRuleAST | CssDeclarationAST>;
+  rules: Array<CssAtRuleAST | CssDeclarationAST | CssWhitespaceAST>;
+  rawPrelude?: string;
 };
 export type CssNamespaceAST = CssCommonPositionAST & {
   type: CssTypes.namespace;
@@ -127,58 +147,71 @@ export type CssNamespaceAST = CssCommonPositionAST & {
 export type CssPageAST = CssCommonPositionAST & {
   type: CssTypes.page;
   selectors: Array<string>;
-  declarations: Array<CssDeclarationAST | CssCommentAST | CssAtRuleAST>;
+  declarations: Array<
+    CssDeclarationAST | CssCommentAST | CssAtRuleAST | CssWhitespaceAST
+  >;
+  rawPrelude?: string;
 };
 export type CssSupportsAST = CssCommonPositionAST & {
   type: CssTypes.supports;
   supports: string;
-  rules: Array<CssAtRuleAST | CssDeclarationAST>;
+  rules: Array<CssAtRuleAST | CssDeclarationAST | CssWhitespaceAST>;
+  rawPrelude?: string;
 };
 
 export type CssStartingStyleAST = CssCommonPositionAST & {
   type: CssTypes.startingStyle;
-  rules: Array<CssAtRuleAST | CssDeclarationAST>;
+  rules: Array<CssAtRuleAST | CssDeclarationAST | CssWhitespaceAST>;
+  rawPrelude?: string;
 };
 
 export type CssCounterStyleAST = CssCommonPositionAST & {
   type: CssTypes.counterStyle;
   name: string;
-  declarations: Array<CssDeclarationAST | CssCommentAST>;
+  declarations: Array<CssDeclarationAST | CssCommentAST | CssWhitespaceAST>;
+  rawPrelude?: string;
 };
 export type CssFontFeatureValuesAST = CssCommonPositionAST & {
   type: CssTypes.fontFeatureValues;
   fontFamily: string;
-  rules: Array<CssAtRuleAST | CssDeclarationAST>;
+  rules: Array<CssAtRuleAST | CssDeclarationAST | CssWhitespaceAST>;
+  rawPrelude?: string;
 };
 export type CssPositionTryAST = CssCommonPositionAST & {
   type: CssTypes.positionTry;
   name: string;
-  declarations: Array<CssDeclarationAST | CssCommentAST>;
+  declarations: Array<CssDeclarationAST | CssCommentAST | CssWhitespaceAST>;
+  rawPrelude?: string;
 };
 export type CssPropertyAST = CssCommonPositionAST & {
   type: CssTypes.property;
   name: string;
-  declarations: Array<CssDeclarationAST | CssCommentAST>;
+  declarations: Array<CssDeclarationAST | CssCommentAST | CssWhitespaceAST>;
+  rawPrelude?: string;
 };
 export type CssScopeAST = CssCommonPositionAST & {
   type: CssTypes.scope;
   scope: string;
-  rules: Array<CssAtRuleAST | CssDeclarationAST>;
+  rules: Array<CssAtRuleAST | CssDeclarationAST | CssWhitespaceAST>;
+  rawPrelude?: string;
 };
 export type CssViewTransitionAST = CssCommonPositionAST & {
   type: CssTypes.viewTransition;
-  declarations: Array<CssDeclarationAST | CssCommentAST>;
+  declarations: Array<CssDeclarationAST | CssCommentAST | CssWhitespaceAST>;
+  rawPrelude?: string;
 };
 export type CssPageMarginBoxAST = CssCommonPositionAST & {
   type: CssTypes.pageMarginBox;
   name: string;
-  declarations: Array<CssDeclarationAST | CssCommentAST>;
+  declarations: Array<CssDeclarationAST | CssCommentAST | CssWhitespaceAST>;
+  rawPrelude?: string;
 };
 export type CssGenericAtRuleAST = CssCommonPositionAST & {
   type: CssTypes.atRule;
   name: string;
   prelude: string;
-  rules?: Array<CssAtRuleAST | CssDeclarationAST>;
+  rules?: Array<CssAtRuleAST | CssDeclarationAST | CssWhitespaceAST>;
+  rawPrelude?: string;
 };
 
 export type CssAtRuleAST =
@@ -211,4 +244,5 @@ export type CssAllNodesAST =
   | CssAtRuleAST
   | CssStylesheetAST
   | CssDeclarationAST
-  | CssKeyframeAST;
+  | CssKeyframeAST
+  | CssWhitespaceAST;
