@@ -1,4 +1,4 @@
-# @adobe/css-tools
+# @node-projects/css-parser
 
 > A modern CSS parser and stringifier with TypeScript support
 
@@ -10,13 +10,13 @@ Parse CSS into an Abstract Syntax Tree (AST) and convert it back to CSS with con
 ## Install
 
 ```bash
-npm install @adobe/css-tools
+npm install @node-projects/css-parser
 ```
 
 ## Usage
 
 ```js
-import { parse, stringify } from '@adobe/css-tools'
+import { parse, stringify } from '@node-projects/css-parser'
 
 // Parse CSS to AST
 const ast = parse('body { font-size: 12px; }')
@@ -139,7 +139,7 @@ The library is optimized for performance and can handle large CSS files efficien
 
 ## Background
 
-This is a fork of the npm `css` package, maintained by Adobe with modern improvements including TypeScript support, enhanced performance, and security updates. It provides a robust foundation for CSS tooling, preprocessing, and analysis.
+This is a fork of the npm `@adobe/css-tools` package, with modern improvements including TypeScript support, enhanced performance, and security updates. It provides a robust foundation for CSS tooling, preprocessing, and analysis.
 
 ## License
 
