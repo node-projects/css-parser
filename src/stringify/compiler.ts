@@ -338,8 +338,8 @@ class Compiler {
         this.emit('}')
       );
     }
-    if (this.identity && !node.rules && (node as any).rawSource) {
-      return this.emit((node as any).rawSource, node.position);
+    if (this.identity && !node.rules && node.rawSource) {
+      return this.emit(node.rawSource, node.position);
     }
     const rules = node.rules
       ? this.stripWhitespace(<CssAllNodesAST[]>node.rules)
@@ -364,8 +364,8 @@ class Compiler {
    * Visit import node.
    */
   import(node: CssImportAST) {
-    if (this.identity && (node as any).rawSource) {
-      return this.emit((node as any).rawSource, node.position);
+    if (this.identity && node.rawSource) {
+      return this.emit(node.rawSource, node.position);
     }
     return this.emit(`@import ${node.import};`, node.position);
   }
@@ -416,8 +416,8 @@ class Compiler {
    * Visit charset node.
    */
   charset(node: CssCharsetAST) {
-    if (this.identity && (node as any).rawSource) {
-      return this.emit((node as any).rawSource, node.position);
+    if (this.identity && node.rawSource) {
+      return this.emit(node.rawSource, node.position);
     }
     return this.emit(`@charset ${node.charset};`, node.position);
   }
@@ -426,8 +426,8 @@ class Compiler {
    * Visit namespace node.
    */
   namespace(node: CssNamespaceAST) {
-    if (this.identity && (node as any).rawSource) {
-      return this.emit((node as any).rawSource, node.position);
+    if (this.identity && node.rawSource) {
+      return this.emit(node.rawSource, node.position);
     }
     return this.emit(`@namespace ${node.namespace};`, node.position);
   }
@@ -631,8 +631,8 @@ class Compiler {
    * Visit custom-media node.
    */
   customMedia(node: CssCustomMediaAST) {
-    if (this.identity && (node as any).rawSource) {
-      return this.emit((node as any).rawSource, node.position);
+    if (this.identity && node.rawSource) {
+      return this.emit(node.rawSource, node.position);
     }
     return this.emit(
       `@custom-media ${node.name} ${node.media};`,

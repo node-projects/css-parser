@@ -22,7 +22,7 @@ Parses CSS code and returns an Abstract Syntax Tree (AST).
 - `options` (object, optional) - Parsing options
   - `silent` (boolean) - Silently fail on parse errors instead of throwing. When `true`, errors are collected in `ast.stylesheet.parsingErrors`
   - `source` (string) - File path for better error reporting
-  - `preserveFormatting` (boolean) - Store source character offsets and original CSS text on the AST for identity round-trip. When `true`, position nodes include an `offset` field and `ast.stylesheet.originalSource` is set. Default: `false`
+  - `preserveFormatting` (boolean) - Insert whitespace AST nodes and store raw formatting properties on nodes for identity round-trip. When `true`, whitespace between siblings is preserved as `CssWhitespaceAST` nodes, and raw formatting properties (`rawPrelude`, `rawBetween`, `rawValue`, `rawSource`) are stored on relevant nodes. Default: `false`
 
 #### Returns
 
@@ -54,7 +54,7 @@ Converts a CSS AST back to CSS string with configurable formatting.
 - `options` (CompilerOptions, optional) - Stringification options
   - `indent` (string) - Indentation string (default: `'  '`)
   - `compress` (boolean) - Whether to compress/minify the output (default: `false`)
-  - `identity` (boolean) - Reproduce the original CSS exactly as parsed. Requires `preserveFormatting: true` during parsing. Falls back to beautified output when original source is not available. Default: `false`
+  - `identity` (boolean) - Reproduce the original CSS exactly as parsed. Requires `preserveFormatting: true` during parsing. Walks the AST including whitespace nodes and uses raw formatting properties to reconstruct the original output. Inserted or modified nodes without raw properties are emitted in beautified format. Falls back to beautified output when `preserveFormatting` was not used. Default: `false`
   - `removeEmptyRules` (boolean) - Remove rules with empty declaration blocks from the output. Works in all modes (beautified, compressed, identity). Default: `false`
 
 #### Returns
@@ -95,9 +95,8 @@ type CssStylesheetAST = {
   type: CssTypes.stylesheet;
   stylesheet: {
     source?: string;
-    rules: CssRuleAST[];
+    rules: Array<CssAtRuleAST | CssWhitespaceAST>;
     parsingErrors?: CssParseError[];
-    originalSource?: string; // Set when preserveFormatting is true
   };
 };
 ```
@@ -163,12 +162,10 @@ type CssPosition = {
   start: {
     line: number;
     column: number;
-    offset?: number; // Set when preserveFormatting is true
   };
   end: {
     line: number;
     column: number;
-    offset?: number; // Set when preserveFormatting is true
   };
 };
 ```

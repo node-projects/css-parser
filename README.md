@@ -55,7 +55,7 @@ Parses CSS code and returns an Abstract Syntax Tree (AST).
 - `options` (object, optional) - Parsing options
   - `silent` (boolean) - Silently fail on parse errors instead of throwing
   - `source` (string) - File path for better error reporting
-  - `preserveFormatting` (boolean) - Store source offsets and original CSS text for identity round-trip (default: `false`)
+  - `preserveFormatting` (boolean) - Insert whitespace AST nodes and store raw formatting properties for identity round-trip (default: `false`)
 
 **Returns:** `CssStylesheetAST` - The parsed CSS as an AST
 

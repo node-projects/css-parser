@@ -233,14 +233,6 @@ export const parse = (
   }
 
   /**
-   * Track brace position and call close().
-   */
-  function closeWithPos(): { ok: boolean; beforeClose: number } {
-    const beforeClose = lexer.pos;
-    return { ok: lexer.tryCloseBrace(), beforeClose };
-  }
-
-  /**
    * Closing brace.
    */
   function close(): boolean {

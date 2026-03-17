@@ -41,11 +41,9 @@ export type CssCommonPositionAST = CssCommonAST & {
   parent?: unknown;
 };
 
-export type CssWhitespaceAST = CssCommonAST & {
+export type CssWhitespaceAST = CssCommonPositionAST & {
   type: CssTypes.whitespace;
   value: string;
-  position?: Position;
-  parent?: unknown;
 };
 
 export type CssStylesheetAST = CssCommonAST & {
@@ -88,11 +86,13 @@ export type CssContainerAST = CssCommonPositionAST & {
 export type CssCharsetAST = CssCommonPositionAST & {
   type: CssTypes.charset;
   charset: string;
+  rawSource?: string;
 };
 export type CssCustomMediaAST = CssCommonPositionAST & {
   type: CssTypes.customMedia;
   name: string;
   media: string;
+  rawSource?: string;
 };
 export type CssDocumentAST = CssCommonPositionAST & {
   type: CssTypes.document;
@@ -114,6 +114,7 @@ export type CssHostAST = CssCommonPositionAST & {
 export type CssImportAST = CssCommonPositionAST & {
   type: CssTypes.import;
   import: string;
+  rawSource?: string;
 };
 export type CssKeyframesAST = CssCommonPositionAST & {
   type: CssTypes.keyframes;
@@ -133,6 +134,7 @@ export type CssLayerAST = CssCommonPositionAST & {
   layer: string;
   rules?: Array<CssAtRuleAST | CssDeclarationAST | CssWhitespaceAST>;
   rawPrelude?: string;
+  rawSource?: string;
 };
 export type CssMediaAST = CssCommonPositionAST & {
   type: CssTypes.media;
@@ -143,6 +145,7 @@ export type CssMediaAST = CssCommonPositionAST & {
 export type CssNamespaceAST = CssCommonPositionAST & {
   type: CssTypes.namespace;
   namespace: string;
+  rawSource?: string;
 };
 export type CssPageAST = CssCommonPositionAST & {
   type: CssTypes.page;
