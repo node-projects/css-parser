@@ -103,27 +103,35 @@ const re_atCharset =
 const re_atNamespace =
   /@namespace\s*((?::?[^;'"]|"(?:\\"|[^"])*?"|'(?:\\'|[^'])*?')+)(?:;|$)/y;
 
+export type ParseOptions = {
+  source?: string;
+  silent?: boolean;
+  preserveFormatting?: boolean;
+};
+
 export const parse = (
   css: string,
-  options?: { source?: string; silent?: boolean },
+  options?: ParseOptions,
 ): CssStylesheetAST => {
   options = options || {};
 
   const lexer = new Lexer(css);
+  const preserveFormatting = options.preserveFormatting ?? false;
 
   /**
    * Mark position and patch `node.position`.
    */
   function position() {
-    const start = lexer.getPosition();
+    const start = preserveFormatting
+      ? { ...lexer.getPosition(), offset: lexer.pos }
+      : lexer.getPosition();
     return <T1 extends CssCommonPositionAST>(
       node: Omit<T1, 'position'>,
     ): T1 => {
-      (node as T1).position = new Position(
-        start,
-        lexer.getPosition(),
-        options?.source || '',
-      );
+      const end = preserveFormatting
+        ? { ...lexer.getPosition(), offset: lexer.pos }
+        : lexer.getPosition();
+      (node as T1).position = new Position(start, end, options?.source || '');
       lexer.skipWhitespace();
       return node as T1;
     };
@@ -162,6 +170,7 @@ export const parse = (
         source: options?.source,
         rules: rulesList,
         parsingErrors: errorsList,
+        ...(preserveFormatting ? { originalSource: css } : {}),
       },
     };
 

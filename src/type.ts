@@ -46,6 +46,7 @@ export type CssStylesheetAST = CssCommonAST & {
     source?: string;
     rules: Array<CssAtRuleAST>;
     parsingErrors?: Array<CssParseError>;
+    originalSource?: string;
   };
 };
 

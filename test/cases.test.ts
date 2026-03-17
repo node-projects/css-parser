@@ -35,6 +35,16 @@ cases.forEach((name: string) => {
       expect(compressed).toBe(readFile(compressedFile));
     });
 
+    it('should round-trip with identity mode', () => {
+      const input = readFile(inputFile);
+      const ast = parse(input, {
+        source: 'input.css',
+        preserveFormatting: true,
+      });
+      const output = stringify(ast, { identity: true });
+      expect(output).toBe(input);
+    });
+
     function parseInput() {
       return parse(readFile(inputFile), { source: 'input.css' });
     }

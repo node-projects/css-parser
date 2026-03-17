@@ -372,3 +372,75 @@ describe('real-world complex CSS', () => {
     expectRoundTrip(css);
   });
 });
+
+// ---------------------------------------------------------------------------
+// removeEmptyRules option
+// ---------------------------------------------------------------------------
+describe('removeEmptyRules option', () => {
+  it('should remove empty rules in beautified mode', () => {
+    const css = '.empty {} .keep { color: red; }';
+    const ast = parse(css);
+    const output = stringify(ast, { removeEmptyRules: true });
+    expect(output).not.toContain('.empty');
+    expect(output).toContain('.keep');
+    expect(output).toContain('color: red');
+  });
+
+  it('should remove empty rules in compressed mode', () => {
+    const css = '.empty {} .keep { color: red; }';
+    const ast = parse(css);
+    const output = stringify(ast, { compress: true, removeEmptyRules: true });
+    expect(output).not.toContain('.empty');
+    expect(output).toContain('.keep');
+  });
+
+  it('should keep empty rules by default', () => {
+    const css = '.empty {} .keep { color: red; }';
+    const ast = parse(css);
+    const output = stringify(ast);
+    expect(output).toContain('.empty');
+    expect(output).toContain('.keep');
+  });
+
+  it('should remove empty rules inside @media', () => {
+    const css = '@media screen { .empty {} .keep { color: red; } }';
+    const ast = parse(css);
+    const output = stringify(ast, { removeEmptyRules: true });
+    expect(output).not.toContain('.empty');
+    expect(output).toContain('.keep');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// identity (write-back) mode
+// ---------------------------------------------------------------------------
+describe('identity mode', () => {
+  it('should reproduce original CSS with preserveFormatting', () => {
+    const css = '.foo   {  color :  red ;  }';
+    const ast = parse(css, { preserveFormatting: true });
+    const output = stringify(ast, { identity: true });
+    expect(output).toBe(css);
+  });
+
+  it('should preserve unusual whitespace', () => {
+    const css = '  body  ,  div  {\n\n    color:  red ;\n\n  }\n\n';
+    const ast = parse(css, { preserveFormatting: true });
+    const output = stringify(ast, { identity: true });
+    expect(output).toBe(css);
+  });
+
+  it('should preserve comments in original positions', () => {
+    const css = '/* header */ .foo { color: red; /* inline */ }';
+    const ast = parse(css, { preserveFormatting: true });
+    const output = stringify(ast, { identity: true });
+    expect(output).toBe(css);
+  });
+
+  it('should fall back to beautified output without preserveFormatting', () => {
+    const css = '.foo{color:red}';
+    const ast = parse(css);
+    const output = stringify(ast, { identity: true });
+    // Without preserveFormatting, identity falls back to beautified mode
+    expect(output).toBe(stringify(ast));
+  });
+});

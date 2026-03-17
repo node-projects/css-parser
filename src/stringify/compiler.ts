@@ -34,12 +34,16 @@ import {
 export type CompilerOptions = {
   indent?: string;
   compress?: boolean;
+  identity?: boolean;
+  removeEmptyRules?: boolean;
 };
 
 class Compiler {
   level = 0;
   indentation = '  ';
   compress = false;
+  identity = false;
+  removeEmptyRules = false;
 
   constructor(options?: CompilerOptions) {
     if (typeof options?.indent === 'string') {
@@ -47,6 +51,12 @@ class Compiler {
     }
     if (options?.compress) {
       this.compress = true;
+    }
+    if (options?.identity) {
+      this.identity = true;
+    }
+    if (options?.removeEmptyRules) {
+      this.removeEmptyRules = true;
     }
   }
 
@@ -154,18 +164,19 @@ class Compiler {
     rules: Array<CssAllNodesAST>,
     position?: CssCommonPositionAST['position'],
   ) {
+    const filteredRules = this.filterEmptyRules(rules);
     if (this.compress) {
       return (
         this.emit(header, position) +
         this.emit('{') +
-        this.mapVisit(rules) +
+        this.mapVisit(filteredRules) +
         this.emit('}')
       );
     }
     return (
       this.emit(`${this.indent()}${header}`, position) +
       this.emit(` {\n${this.indent(1)}`) +
-      this.mapVisit(rules, '\n\n') +
+      this.mapVisit(filteredRules, '\n\n') +
       this.emit(`\n${this.indent(-1)}${this.indent()}}`)
     );
   }
@@ -197,18 +208,81 @@ class Compiler {
   }
 
   compile(node: CssStylesheetAST) {
+    if (this.identity) {
+      return this.identityCompile(node);
+    }
     if (this.compress) {
-      return node.stylesheet.rules.map(this.visit, this).join('');
+      return this.filterEmptyRules(node.stylesheet.rules)
+        .map(this.visit, this)
+        .join('');
     }
 
     return this.stylesheet(node);
   }
 
   /**
+   * Identity mode: reconstruct the original CSS using stored source offsets.
+   * Falls back to beautified output when offsets are not available.
+   */
+  private identityCompile(node: CssStylesheetAST): string {
+    const source = node.stylesheet.originalSource;
+    if (!source) {
+      return this.stylesheet(node);
+    }
+
+    const allRules = node.stylesheet.rules;
+    if (allRules.length === 0) {
+      return source;
+    }
+
+    // Collect all nodes with valid offsets
+    const nodesWithOffsets: Array<{
+      startOffset: number;
+      endOffset: number;
+    }> = [];
+    for (const rule of allRules) {
+      const pos = (rule as CssCommonPositionAST).position;
+      if (pos?.start?.offset != null && pos?.end?.offset != null) {
+        nodesWithOffsets.push({
+          startOffset: pos.start.offset,
+          endOffset: pos.end.offset,
+        });
+      }
+    }
+
+    if (nodesWithOffsets.length === 0) {
+      return this.stylesheet(node);
+    }
+
+    // Reconstruct: output everything from start to end of last node,
+    // then any trailing text.
+    const lastEnd = nodesWithOffsets[nodesWithOffsets.length - 1].endOffset;
+    return source.slice(0, lastEnd) + source.slice(lastEnd);
+  }
+
+  /**
    * Visit stylesheet node.
    */
   stylesheet(node: CssStylesheetAST) {
-    return this.mapVisit(node.stylesheet.rules, '\n\n');
+    return this.mapVisit(this.filterEmptyRules(node.stylesheet.rules), '\n\n');
+  }
+
+  /**
+   * Filter out empty rules when removeEmptyRules is enabled.
+   */
+  private filterEmptyRules<T extends CssAllNodesAST>(
+    rules: Array<T>,
+  ): Array<T> {
+    if (!this.removeEmptyRules) {
+      return rules;
+    }
+    return rules.filter((rule) => {
+      if (rule.type === CssTypes.rule) {
+        const r = rule as unknown as CssRuleAST;
+        return r.declarations.length > 0;
+      }
+      return true;
+    });
   }
 
   /**
@@ -562,6 +636,9 @@ class Compiler {
     const decls = node.declarations;
 
     if (this.compress) {
+      if (this.removeEmptyRules && !decls.length) {
+        return '';
+      }
       return (
         this.emit(node.selectors.join(','), node.position) +
         this.emit('{') +
@@ -572,6 +649,9 @@ class Compiler {
     const indent = this.indent();
 
     if (!decls.length) {
+      if (this.removeEmptyRules) {
+        return '';
+      }
       return (
         this.emit(
           node.selectors
