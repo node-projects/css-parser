@@ -50,5 +50,4 @@ li{background:orange;}
 #f\~o\~o{background:lime;}
 #f\+o\+o{background:lime;}
 
-/* css-parse does not yet pass this test */
-/*#\{\}{background:lime;}*/
+#\{\}{background:lime;}

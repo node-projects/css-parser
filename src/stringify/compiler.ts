@@ -560,9 +560,6 @@ class Compiler {
    */
   rule(node: CssRuleAST) {
     const decls = node.declarations;
-    if (!decls.length) {
-      return '';
-    }
 
     if (this.compress) {
       return (
@@ -573,6 +570,19 @@ class Compiler {
       );
     }
     const indent = this.indent();
+
+    if (!decls.length) {
+      return (
+        this.emit(
+          node.selectors
+            .map((s) => {
+              return indent + s;
+            })
+            .join(',\n'),
+          node.position,
+        ) + this.emit(' {}')
+      );
+    }
 
     return (
       this.emit(
