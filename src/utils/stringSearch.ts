@@ -1,5 +1,11 @@
 export const MAX_LOOP = 10000;
 
+// ─── Character-code constants for fast comparisons ───────────────────────────
+const Ch_BACKSLASH = 92; //  \
+const Ch_OPEN_PAREN = 40; //  (
+const Ch_DOUBLE_QUOTE = 34; //  "
+const Ch_SINGLE_QUOTE = 39; //  '
+
 /**
  * Find the first occurrence of any search string in the input string, ignoring escaped characters
  * @param string - The input string to search in
@@ -32,7 +38,7 @@ export const indexOfArrayNonEscaped = (
     }
 
     const found = Math.min(...foundAll);
-    if (string[found] === '\\') {
+    if (string.charCodeAt(found) === Ch_BACKSLASH) {
       currentPosition = found + 2;
       maxLoop--;
     } else {
@@ -88,12 +94,12 @@ export const indexOfArrayWithBracketAndQuoteSupport = (
     }
 
     const firstMatchPos = Math.min(...foundAll);
-    const char = string[firstMatchPos];
-    switch (char) {
-      case '\\':
+    const charCode = string.charCodeAt(firstMatchPos);
+    switch (charCode) {
+      case Ch_BACKSLASH:
         currentSearchPosition = firstMatchPos + 2;
         break;
-      case '(':
+      case Ch_OPEN_PAREN:
         {
           const endPosition = indexOfArrayWithBracketAndQuoteSupport(
             string,
@@ -106,7 +112,7 @@ export const indexOfArrayWithBracketAndQuoteSupport = (
           currentSearchPosition = endPosition + 1;
         }
         break;
-      case '"':
+      case Ch_DOUBLE_QUOTE:
         {
           const endQuotePosition = indexOfArrayNonEscaped(
             string,
@@ -119,7 +125,7 @@ export const indexOfArrayWithBracketAndQuoteSupport = (
           currentSearchPosition = endQuotePosition + 1;
         }
         break;
-      case "'":
+      case Ch_SINGLE_QUOTE:
         {
           const endQuotePosition = indexOfArrayNonEscaped(
             string,
