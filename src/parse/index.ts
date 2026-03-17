@@ -36,13 +36,39 @@ import {
   indexOfArrayWithBracketAndQuoteSupport,
   splitWithBracketAndQuoteSupport,
 } from '../utils/stringSearch';
-import { Lexer } from './lexer';
+import { Ch_AT, Ch_CLOSE, Ch_SLASH, Ch_STAR, Lexer } from './lexer';
 
 // http://www.w3.org/TR/CSS21/grammar.html
 // https://github.com/visionmedia/css-parse/pull/49#issuecomment-30088027
 // New rule => https://www.w3.org/TR/CSS22/syndata.html#comments
 // [^] is equivalent to [.\n\r]
 const commentRegex = /\/\*[^]*?(?:\*\/|$)/g;
+
+// ─── Sticky regexes (y-flag) ────────────────────────────────────────────────
+// Using sticky regexes matched against the full input string avoids
+// creating a temporary substring on every `matchRegex` call.
+const re_comment = /\/\*[^]*?\*\//y;
+const re_propName = /(\*?[-#/*\\\w]+(\[[0-9a-z_-]+\])?)\s*/y;
+const re_keyframeValue = /((\d+\.\d+|\.\d+|\d+)%?|[a-z]+)\s*/y;
+const re_keyframesName = /@([-\w]+)?keyframes\s*/y;
+const re_identifier = /([-\w]+)\s*/y;
+const re_supports = /@supports *([^{]+)/y;
+const re_host = /@host\s*/y;
+const re_container = /@container *([^{]+)/y;
+const re_layer = /@layer *([^{;@]+)/y;
+const re_media = /@media *([^{]+)/y;
+const re_customMedia = /@custom-media\s+(--\S+)\s+([^{;\s][^{;]*);/y;
+const re_page = /@page */y;
+const re_document = /@([-\w]+)?document *([^{]+)/y;
+const re_fontFace = /@font-face\s*/y;
+const re_property = /@property\s+(--[-\w]+)\s*/y;
+const re_counterStyle = /@counter-style\s+([-\w]+)\s*/y;
+const re_fontFeatureValues = /@font-feature-values\s+([^{]+)/y;
+const re_scope = /@scope\s*([^{]*)/y;
+const re_viewTransition = /@view-transition\s*/y;
+const re_positionTry = /@position-try\s+(--[-\w]+)\s*/y;
+const re_startingStyle = /@starting-style\s*/y;
+const re_genericAtRule = /@([-\w]+)\s*/y;
 
 export const parse = (
   css: string,
@@ -132,7 +158,7 @@ export const parse = (
     lexer.skipWhitespace();
     comments(rules);
     while (lexer.hasMore) {
-      if (lexer.charAt() === '}') {
+      if (lexer.charCodeAt() === Ch_CLOSE) {
         if (options?.silent) {
           // Skip stray closing braces at top level
           error("extra '}'");
@@ -188,11 +214,11 @@ export const parse = (
    */
   function comment(): CssCommentAST | undefined {
     const pos = position();
-    if ('/' !== lexer.charAt() || '*' !== lexer.charAt(1)) {
+    if (lexer.charCodeAt() !== Ch_SLASH || lexer.charCodeAt(1) !== Ch_STAR) {
       return;
     }
 
-    const m = lexer.matchRegex(/^\/\*[^]*?\*\//);
+    const m = lexer.matchRegex(re_comment);
     if (!m) {
       return error('End of comment missing');
     }
@@ -228,9 +254,7 @@ export const parse = (
     const pos = position();
 
     // prop
-    const propMatch = lexer.matchRegex(
-      /^(\*?[-#/*\\\w]+(\[[0-9a-z_-]+\])?)\s*/,
-    );
+    const propMatch = lexer.matchRegex(re_propName);
     if (!propMatch) {
       return;
     }
@@ -284,7 +308,11 @@ export const parse = (
       decl = declaration();
     }
     // In silent mode, try to recover from errors by skipping to next semicolon
-    while (options?.silent && lexer.hasMore && lexer.charAt() !== '}') {
+    while (
+      options?.silent &&
+      lexer.hasMore &&
+      lexer.charCodeAt() !== Ch_CLOSE
+    ) {
       const remaining = lexer.remaining;
       const semiPos = remaining.indexOf(';');
       const bracePos = remaining.indexOf('}');
@@ -345,9 +373,9 @@ export const parse = (
     }
     comments(items);
 
-    while (lexer.hasMore && lexer.charAt() !== '}') {
+    while (lexer.hasMore && lexer.charCodeAt() !== Ch_CLOSE) {
       // nested at-rule
-      if (lexer.charAt() === '@') {
+      if (lexer.charCodeAt() === Ch_AT) {
         const ar = atRule();
         if (ar) {
           items.push(ar);
@@ -404,9 +432,9 @@ export const parse = (
     const items: Array<CssAtRuleAST | CssDeclarationAST | CssCommentAST> = [];
     whitespace();
     comments(items);
-    while (lexer.hasMore && lexer.charAt() !== '}') {
+    while (lexer.hasMore && lexer.charCodeAt() !== Ch_CLOSE) {
       // at-rule
-      if (lexer.charAt() === '@') {
+      if (lexer.charCodeAt() === Ch_AT) {
         const ar = atRule();
         if (ar) {
           items.push(ar);
@@ -457,11 +485,11 @@ export const parse = (
     const vals = [];
     const pos = position();
 
-    let m = lexer.matchRegex(/^((\d+\.\d+|\.\d+|\d+)%?|[a-z]+)\s*/);
+    let m = lexer.matchRegex(re_keyframeValue);
     while (m) {
       vals.push(m[1]);
       lexer.tryCommaAndWhitespace();
-      m = lexer.matchRegex(/^((\d+\.\d+|\.\d+|\d+)%?|[a-z]+)\s*/);
+      m = lexer.matchRegex(re_keyframeValue);
     }
 
     if (!vals.length) {
@@ -480,7 +508,7 @@ export const parse = (
    */
   function atKeyframes(): CssKeyframesAST | undefined {
     const pos = position();
-    const m1 = lexer.matchRegex(/^@([-\w]+)?keyframes\s*/);
+    const m1 = lexer.matchRegex(re_keyframesName);
 
     if (!m1) {
       return;
@@ -488,7 +516,7 @@ export const parse = (
     const vendor = m1[1];
 
     // identifier
-    const m2 = lexer.matchRegex(/^([-\w]+)\s*/);
+    const m2 = lexer.matchRegex(re_identifier);
     if (!m2) {
       return error('@keyframes missing name');
     }
@@ -523,7 +551,7 @@ export const parse = (
    */
   function atSupports(): CssSupportsAST | undefined {
     const pos = position();
-    const m = lexer.matchRegex(/^@supports *([^{]+)/);
+    const m = lexer.matchRegex(re_supports);
 
     if (!m) {
       return;
@@ -552,7 +580,7 @@ export const parse = (
    */
   function atHost() {
     const pos = position();
-    const m = lexer.matchRegex(/^@host\s*/);
+    const m = lexer.matchRegex(re_host);
 
     if (!m) {
       return;
@@ -579,7 +607,7 @@ export const parse = (
    */
   function atContainer(): CssContainerAST | undefined {
     const pos = position();
-    const m = lexer.matchRegex(/^@container *([^{]+)/);
+    const m = lexer.matchRegex(re_container);
 
     if (!m) {
       return;
@@ -608,7 +636,7 @@ export const parse = (
    */
   function atLayer(): CssLayerAST | undefined {
     const pos = position();
-    const m = lexer.matchRegex(/^@layer *([^{;@]+)/);
+    const m = lexer.matchRegex(re_layer);
 
     if (!m) {
       return;
@@ -641,7 +669,7 @@ export const parse = (
    */
   function atMedia(): CssMediaAST | undefined {
     const pos = position();
-    const m = lexer.matchRegex(/^@media *([^{]+)/);
+    const m = lexer.matchRegex(re_media);
 
     if (!m) {
       return;
@@ -670,7 +698,7 @@ export const parse = (
    */
   function atCustomMedia(): CssCustomMediaAST | undefined {
     const pos = position();
-    const m = lexer.matchRegex(/^@custom-media\s+(--\S+)\s+([^{;\s][^{;]*);/);
+    const m = lexer.matchRegex(re_customMedia);
     if (!m) {
       return;
     }
@@ -704,7 +732,8 @@ export const parse = (
     'right-bottom',
   ];
   const pageMarginBoxRegex = new RegExp(
-    `^@(${pageMarginBoxNames.join('|')})(?![\\w-])\\s*`,
+    `@(${pageMarginBoxNames.join('|')})(?![\\w-])\\s*`,
+    'y',
   );
 
   function atPageMarginBox(): CssPageMarginBoxAST | undefined {
@@ -741,7 +770,7 @@ export const parse = (
    */
   function atPage(): CssPageAST | undefined {
     const pos = position();
-    const m = lexer.matchRegex(/^@page */);
+    const m = lexer.matchRegex(re_page);
     if (!m) {
       return;
     }
@@ -755,8 +784,8 @@ export const parse = (
     comments(decls);
 
     // declarations and nested at-rules (margin boxes)
-    while (lexer.hasMore && lexer.charAt() !== '}') {
-      if (lexer.charAt() === '@') {
+    while (lexer.hasMore && lexer.charCodeAt() !== Ch_CLOSE) {
+      if (lexer.charCodeAt() === Ch_AT) {
         const ar = atRule();
         if (ar) {
           decls.push(ar);
@@ -789,7 +818,7 @@ export const parse = (
    */
   function atDocument(): CssDocumentAST | undefined {
     const pos = position();
-    const m = lexer.matchRegex(/^@([-\w]+)?document *([^{]+)/);
+    const m = lexer.matchRegex(re_document);
     if (!m) {
       return;
     }
@@ -820,7 +849,7 @@ export const parse = (
    */
   function atFontFace(): CssFontFaceAST | undefined {
     const pos = position();
-    const m = lexer.matchRegex(/^@font-face\s*/);
+    const m = lexer.matchRegex(re_fontFace);
     if (!m) {
       return;
     }
@@ -853,7 +882,7 @@ export const parse = (
    */
   function atProperty(): CssPropertyAST | undefined {
     const pos = position();
-    const m = lexer.matchRegex(/^@property\s+(--[-\w]+)\s*/);
+    const m = lexer.matchRegex(re_property);
     if (!m) {
       return;
     }
@@ -885,7 +914,7 @@ export const parse = (
    */
   function atCounterStyle(): CssCounterStyleAST | undefined {
     const pos = position();
-    const m = lexer.matchRegex(/^@counter-style\s+([-\w]+)\s*/);
+    const m = lexer.matchRegex(re_counterStyle);
     if (!m) {
       return;
     }
@@ -917,7 +946,7 @@ export const parse = (
    */
   function atFontFeatureValues(): CssFontFeatureValuesAST | undefined {
     const pos = position();
-    const m = lexer.matchRegex(/^@font-feature-values\s+([^{]+)/);
+    const m = lexer.matchRegex(re_fontFeatureValues);
     if (!m) {
       return;
     }
@@ -945,7 +974,7 @@ export const parse = (
    */
   function atScope(): CssScopeAST | undefined {
     const pos = position();
-    const m = lexer.matchRegex(/^@scope\s*([^{]*)/);
+    const m = lexer.matchRegex(re_scope);
     if (!m) {
       return;
     }
@@ -973,7 +1002,7 @@ export const parse = (
    */
   function atViewTransition(): CssViewTransitionAST | undefined {
     const pos = position();
-    const m = lexer.matchRegex(/^@view-transition\s*/);
+    const m = lexer.matchRegex(re_viewTransition);
     if (!m) {
       return;
     }
@@ -1003,7 +1032,7 @@ export const parse = (
    */
   function atPositionTry(): CssPositionTryAST | undefined {
     const pos = position();
-    const m = lexer.matchRegex(/^@position-try\s+(--[-\w]+)\s*/);
+    const m = lexer.matchRegex(re_positionTry);
     if (!m) {
       return;
     }
@@ -1035,7 +1064,7 @@ export const parse = (
    */
   function atStartingStyle(): CssStartingStyleAST | undefined {
     const pos = position();
-    const m = lexer.matchRegex(/^@starting-style\s*/);
+    const m = lexer.matchRegex(re_startingStyle);
     if (!m) {
       return;
     }
@@ -1077,9 +1106,10 @@ export const parse = (
     name: string,
   ): () => T1 | undefined {
     const re = new RegExp(
-      '^@' +
+      '@' +
         name +
         '\\s*((?::?[^;\'"]|"(?:\\\\"|[^"])*?"|\'(?:\\\\\'|[^\'])*?\')+)(?:;|$)',
+      'y',
     );
 
     return (): T1 | undefined => {
@@ -1100,7 +1130,7 @@ export const parse = (
    */
   function atGeneric(): CssGenericAtRuleAST | undefined {
     const pos = position();
-    const m = lexer.matchRegex(/^@([-\w]+)\s*/);
+    const m = lexer.matchRegex(re_genericAtRule);
     if (!m) {
       return;
     }
@@ -1146,7 +1176,7 @@ export const parse = (
    * Parse at rule.
    */
   function atRule(): CssAtRuleAST | undefined {
-    if (lexer.charAt() !== '@') {
+    if (lexer.charCodeAt() !== Ch_AT) {
       return;
     }
 

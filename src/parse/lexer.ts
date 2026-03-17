@@ -1,14 +1,37 @@
 /**
- * A simple lexer (scanner) for CSS input.
+ * A fast lexer (scanner) for CSS input.
  *
- * Instead of repeatedly slicing the input string and matching regexes
- * anchored at `^`, the Lexer keeps an index (`pos`) into the original
- * input.  Simple token types (whitespace, braces, colons, semicolons,
- * commas) are scanned character-by-character, avoiding regular
- * expressions for those cases.  For complex patterns the `matchRegex`
- * helper still uses a regex, but applies it to a slice of the
- * remaining input so the rest of the codebase can stay familiar.
+ * Inspired by the approach used in es-module-shims / es-module-lexer,
+ * this lexer uses numeric character-code comparisons (`charCodeAt`)
+ * instead of single-character string comparisons, and employs sticky
+ * (`y`-flag) regular expressions matched directly against the full
+ * input to avoid creating temporary substring slices.
+ *
+ * The Lexer keeps an index (`pos`) into the original input.  Simple
+ * token types (whitespace, braces, colons, semicolons, commas) are
+ * scanned character-by-character via `charCodeAt`, avoiding regular
+ * expressions for those cases.  For complex patterns `matchRegex` uses
+ * a sticky regex positioned at `pos` so no string copy is needed.
  */
+
+// ─── Character-code constants ────────────────────────────────────────────────
+// Using charCodeAt comparisons is measurably faster than creating
+// single-character strings and comparing with `===`.
+
+const Ch_TAB = 9; //  \t
+const Ch_LF = 10; //  \n
+const Ch_FF = 12; //  \f
+const Ch_CR = 13; //  \r
+const Ch_SPACE = 32; //  ' '
+const Ch_COMMA = 44; //  ,
+const Ch_SLASH = 47; //  /
+const Ch_COLON = 58; //  :
+const Ch_SEMI = 59; //  ;
+const Ch_AT = 64; //  @
+const Ch_OPEN = 123; //  {
+const Ch_CLOSE = 125; //  }
+const Ch_STAR = 42; //  *
+
 export class Lexer {
   /** The complete CSS source string. */
   readonly input: string;
@@ -37,6 +60,17 @@ export class Lexer {
   }
 
   /**
+   * Returns the character code at `pos + offset` without advancing,
+   * or `NaN` when past the end of input.
+   *
+   * Comparing numeric codes (`charCodeAt`) is faster than creating
+   * single-character strings with bracket indexing.
+   */
+  charCodeAt(offset = 0): number {
+    return this.input.charCodeAt(this.pos + offset);
+  }
+
+  /**
    * Returns the character at `pos + offset` without advancing, or an
    * empty string when past the end of input.
    */
@@ -62,9 +96,10 @@ export class Lexer {
    * Returns the consumed slice.
    */
   consume(n: number): string {
-    const str = this.input.slice(this.pos, this.pos + n);
-    this._advance(str);
-    return str;
+    const start = this.pos;
+    const end = start + n;
+    this._advanceRange(start, end);
+    return this.input.slice(start, end);
   }
 
   /**
@@ -76,15 +111,20 @@ export class Lexer {
   }
 
   /**
-   * Apply `re` (which must be anchored with `^`) against the remaining
-   * input.  If the regex matches, the matched text is consumed and the
-   * `RegExpExecArray` is returned; otherwise `null` is returned and `pos`
-   * is not changed.
+   * Apply a sticky (`y`-flag) regex directly against the full input
+   * at the current position.  If the regex matches, the matched text
+   * is consumed and the `RegExpExecArray` is returned; otherwise
+   * `null` is returned and `pos` is not changed.
+   *
+   * Using the `y` flag with `lastIndex` avoids creating a temporary
+   * substring slice (which the old `^`-anchor + `this.remaining`
+   * approach required).
    */
   matchRegex(re: RegExp): RegExpExecArray | null {
-    const m = re.exec(this.remaining);
+    re.lastIndex = this.pos;
+    const m = re.exec(this.input);
     if (m) {
-      this._advance(m[0]);
+      this._advanceRange(this.pos, this.pos + m[0].length);
     }
     return m;
   }
@@ -93,16 +133,23 @@ export class Lexer {
 
   /**
    * Consume zero or more whitespace characters (space, tab, CR, LF,
-   * form-feed) without using a regular expression.
+   * form-feed) using `charCodeAt` instead of string comparisons.
    */
   skipWhitespace(): void {
-    while (this.pos < this.input.length) {
-      const ch = this.input[this.pos];
-      if (ch === '\n') {
+    const src = this.input;
+    const len = src.length;
+    while (this.pos < len) {
+      const ch = src.charCodeAt(this.pos);
+      if (ch === Ch_LF) {
         this.lineno++;
         this.column = 1;
         this.pos++;
-      } else if (ch === ' ' || ch === '\t' || ch === '\r' || ch === '\f') {
+      } else if (
+        ch === Ch_SPACE ||
+        ch === Ch_TAB ||
+        ch === Ch_CR ||
+        ch === Ch_FF
+      ) {
         this.column++;
         this.pos++;
       } else {
@@ -116,7 +163,7 @@ export class Lexer {
    * whitespace, then return `true`.  Otherwise return `false`.
    */
   tryOpenBrace(): boolean {
-    if (this.input[this.pos] !== '{') {
+    if (this.input.charCodeAt(this.pos) !== Ch_OPEN) {
       return false;
     }
     this.pos++;
@@ -130,7 +177,7 @@ export class Lexer {
    * Otherwise return `false`.
    */
   tryCloseBrace(): boolean {
-    if (this.input[this.pos] !== '}') {
+    if (this.input.charCodeAt(this.pos) !== Ch_CLOSE) {
       return false;
     }
     this.pos++;
@@ -143,7 +190,7 @@ export class Lexer {
    * whitespace, then return `true`.  Otherwise return `false`.
    */
   tryColon(): boolean {
-    if (this.input[this.pos] !== ':') {
+    if (this.input.charCodeAt(this.pos) !== Ch_COLON) {
       return false;
     }
     this.pos++;
@@ -153,22 +200,24 @@ export class Lexer {
   }
 
   /**
-   * Consume any leading semicolons and whitespace characters without
-   * using a regular expression.
+   * Consume any leading semicolons and whitespace characters using
+   * `charCodeAt` instead of string comparisons.
    */
   skipSemicolonAndWhitespace(): void {
-    while (this.pos < this.input.length) {
-      const ch = this.input[this.pos];
-      if (ch === '\n') {
+    const src = this.input;
+    const len = src.length;
+    while (this.pos < len) {
+      const ch = src.charCodeAt(this.pos);
+      if (ch === Ch_LF) {
         this.lineno++;
         this.column = 1;
         this.pos++;
       } else if (
-        ch === ';' ||
-        ch === ' ' ||
-        ch === '\t' ||
-        ch === '\r' ||
-        ch === '\f'
+        ch === Ch_SEMI ||
+        ch === Ch_SPACE ||
+        ch === Ch_TAB ||
+        ch === Ch_CR ||
+        ch === Ch_FF
       ) {
         this.column++;
         this.pos++;
@@ -183,7 +232,7 @@ export class Lexer {
    * whitespace, then return `true`.  Otherwise return `false`.
    */
   tryCommaAndWhitespace(): boolean {
-    if (this.input[this.pos] !== ',') {
+    if (this.input.charCodeAt(this.pos) !== Ch_COMMA) {
       return false;
     }
     this.pos++;
@@ -204,16 +253,23 @@ export class Lexer {
 
   // ─── Internal helpers ─────────────────────────────────────────────────────
 
-  /** Update `lineno`, `column`, and `pos` for a string that has been consumed. */
-  private _advance(str: string): void {
-    for (let i = 0; i < str.length; i++) {
-      if (str[i] === '\n') {
+  /**
+   * Update `lineno`, `column`, and `pos` for a range of characters in
+   * the original input.  Uses `charCodeAt` for the newline check.
+   */
+  private _advanceRange(from: number, to: number): void {
+    const src = this.input;
+    for (let i = from; i < to; i++) {
+      if (src.charCodeAt(i) === Ch_LF) {
         this.lineno++;
         this.column = 1;
       } else {
         this.column++;
       }
     }
-    this.pos += str.length;
+    this.pos = to;
   }
 }
+
+// Re-export character codes so the parser can use them for fast checks
+export { Ch_AT, Ch_CLOSE, Ch_SLASH, Ch_STAR };
