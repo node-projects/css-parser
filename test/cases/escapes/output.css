@@ -4,15 +4,27 @@
 
 /* will match elements with class=":`(" */
 
+.\3A \`\( {}
+
 /* will match elements with class="1a2b3c" */
+
+.\31 a2b3c {}
 
 /* will match the element with id="#fake-id" */
 
+#\#fake-id {}
+
 /* will match the element with id="---" */
+
+#\--- {}
 
 /* will match the element with id="-a-b-c-" */
 
+#-a-b-c- {}
+
 /* will match the element with id="©" */
+
+#© {}
 
 /* More tests from http://mathiasbynens.be/demo/html5-id */
 
