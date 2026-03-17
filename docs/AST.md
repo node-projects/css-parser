@@ -36,7 +36,7 @@ The root node representing an entire CSS document.
 
 **Properties:**
 - `stylesheet.source` (optional): Source file path
-- `stylesheet.rules`: Array of top-level rules
+- `stylesheet.rules`: Array of top-level rules (may include `whitespace` nodes when `preserveFormatting: true`)
 - `stylesheet.parsingErrors` (optional): Array of parse errors when `silent` option is used
 
 **Example:**
@@ -103,6 +103,21 @@ A CSS comment.
 {
   "type": "comment",
   "comment": " This is a comment "
+}
+```
+
+### `whitespace`
+
+A whitespace node that preserves original formatting between sibling nodes. Only present when `preserveFormatting: true` is used during parsing.
+
+**Properties:**
+- `value`: The whitespace text (spaces, newlines, tabs, etc.)
+
+**Example:**
+```json
+{
+  "type": "whitespace",
+  "value": "\n\n"
 }
 ```
 
@@ -364,3 +379,39 @@ This is useful for:
 - Source mapping
 - Code analysis tools
 - IDE integration
+
+## Formatting Properties (`preserveFormatting: true`)
+
+When parsing with `preserveFormatting: true`, the parser stores additional formatting metadata on AST nodes to support exact round-trip via identity mode. These properties are optional and only present when formatting is preserved.
+
+### Whitespace Nodes
+
+`CssWhitespaceAST` nodes are inserted between sibling nodes in all arrays (rules, declarations, keyframes) to preserve the original whitespace and line breaks.
+
+### Raw Properties on Nodes
+
+- **`rawPrelude`** (on rules, at-rules with blocks): The exact original text before `{`, preserving whitespace between selector/condition and brace
+- **`rawBetween`** (on declarations): The text between the property name and value, including `:` and any surrounding whitespace (e.g., `": "` or `":  "`)
+- **`rawValue`** (on declarations): The untrimmed original value text
+- **`rawSource`** (on statement at-rules: import, charset, namespace, custom-media, layer statement): The exact original text of the entire at-rule
+
+### AST Modification with Identity Mode
+
+Because formatting data is stored per-node rather than as a single cached string, you can freely insert, remove, or modify AST nodes and identity mode will reflect the changes:
+
+```typescript
+const ast = parse(css, { preserveFormatting: true });
+
+// Insert a new rule — it will be beautified since it has no raw properties
+ast.stylesheet.rules.push({
+  type: CssTypes.rule,
+  selectors: ['.new'],
+  declarations: [{ type: CssTypes.declaration, property: 'color', value: 'blue' }]
+});
+
+// Remove a rule — the surrounding whitespace nodes naturally adapt
+ast.stylesheet.rules.splice(1, 1);
+
+// Identity mode outputs original formatting for untouched nodes + beautified for new nodes
+stringify(ast, { identity: true });
+```

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- Add `preserveFormatting` parser option to insert whitespace AST nodes and store raw formatting properties for identity round-trip
+- Add `CssTypes.whitespace` node type (`CssWhitespaceAST`) to represent whitespace between sibling nodes
+- Add `identity` compiler option to reproduce original CSS exactly as parsed (round-trip fidelity), with support for AST modifications
+- Add `removeEmptyRules` compiler option to strip rules with empty declaration blocks
+- Add raw formatting properties: `rawPrelude`, `rawBetween`, `rawValue`, `rawSource` on relevant AST nodes
+- Export `CompilerOptions`, `ParseOptions`, and `CssWhitespaceAST` types from the public API
+
 ## [4.4.4] - 2025-07-22
 
 ### Changed
