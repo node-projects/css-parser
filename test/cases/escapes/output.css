@@ -161,6 +161,6 @@ li {
   background: lime;
 }
 
-/* css-parse does not yet pass this test */
-
-/*#\{\}{background:lime;}*/
+#\{\} {
+  background: lime;
+}
