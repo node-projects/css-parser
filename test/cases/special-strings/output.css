@@ -28,8 +28,8 @@
 
 .grid-areas {
   grid-template-areas: "header header header"
-                           "sidebar main aside"
-                           "footer footer footer";
+                       "sidebar main aside"
+                       "footer footer footer";
   grid-template-columns: 200px 1fr 150px;
 }
 

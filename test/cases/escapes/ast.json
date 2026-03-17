@@ -1,6 +1,7 @@
 {
   "type": "stylesheet",
   "stylesheet": {
+    "source": "input.css",
     "rules": [
       {
         "type": "comment",
@@ -1522,8 +1523,28 @@
         }
       },
       {
-        "type": "comment",
-        "comment": " css-parse does not yet pass this test ",
+        "type": "rule",
+        "selectors": [
+          "#\\{\\}"
+        ],
+        "declarations": [
+          {
+            "type": "declaration",
+            "property": "background",
+            "value": "lime",
+            "position": {
+              "start": {
+                "line": 53,
+                "column": 7
+              },
+              "end": {
+                "line": 53,
+                "column": 22
+              },
+              "source": "input.css"
+            }
+          }
+        ],
         "position": {
           "start": {
             "line": 53,
@@ -1531,26 +1552,12 @@
           },
           "end": {
             "line": 53,
-            "column": 44
-          },
-          "source": "input.css"
-        }
-      },
-      {
-        "type": "comment",
-        "comment": "#\\{\\}{background:lime;}",
-        "position": {
-          "start": {
-            "line": 54,
-            "column": 1
-          },
-          "end": {
-            "line": 54,
-            "column": 28
+            "column": 24
           },
           "source": "input.css"
         }
       }
-    ]
+    ],
+    "parsingErrors": []
   }
 }

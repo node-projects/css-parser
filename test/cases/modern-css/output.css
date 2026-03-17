@@ -1,0 +1,100 @@
+@layer base, components, utilities;
+
+@property --accent {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: oklch(0.7 0.15 180);
+}
+
+@font-face {
+  font-family: "App Font";
+  src: url("font.woff2") format("woff2");
+  font-display: swap;
+  font-weight: 100 900;
+}
+
+@layer base {
+  :root {
+    --accent: oklch(0.7 0.15 180);
+    --spacing: clamp(0.5rem, 2vw, 2rem);
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+  }
+}
+
+@layer components {
+  .card {
+    container-type: inline-size;
+    padding: var(--spacing);
+    background: color-mix(in oklch, var(--accent) 10%, white);
+    & .title {
+      font-size: 1.5em;
+      color: var(--accent);
+      &:hover {
+        color: color-mix(in oklch, var(--accent), black 20%);
+      }
+    }
+    @container (min-width: 400px) {
+      display: grid;
+
+      grid-template-columns: 1fr 2fr;
+
+      gap: var(--spacing);
+    }
+    @media (prefers-color-scheme: dark) {
+      background: color-mix(in oklch, var(--accent) 10%, black);
+    }
+  }
+}
+
+@layer utilities {
+  .sr-only:not(:focus):not(:active) {
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    height: 1px;
+    overflow: hidden;
+    position: absolute;
+    white-space: nowrap;
+    width: 1px;
+  }
+}
+
+@supports selector(:has(> .child)) {
+  .parent:has(> .child) {
+    color: red;
+  }
+}
+
+@scope (.theme-dark) to (.theme-light) {
+  :scope {
+    background: #222;
+  }
+
+  a {
+    color: lightblue;
+  }
+}
+
+@media (width > 600px) {
+  .wide {
+    display: flex;
+  }
+}
+
+@media print {
+@page {
+    margin: 2cm;
+    @top-center {
+      content: "Document Title";
+    }
+}
+
+  .no-print {
+    display: none !important;
+  }
+}
