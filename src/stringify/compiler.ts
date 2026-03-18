@@ -169,12 +169,14 @@ class Compiler {
     rawPrelude?: string,
   ) {
     if (this.identity && rawPrelude) {
-      return (
+      this.indent(1);
+      const result =
         this.emit(rawPrelude, position) +
         this.emit('{') +
-        this.mapVisit(this.filterEmptyRules(rules)) +
-        this.emit('}')
-      );
+        this.identityVisitBlock(this.filterEmptyRules(rules), 'rules') +
+        this.emit('}');
+      this.indent(-1);
+      return result;
     }
     const filteredRules = this.filterEmptyRules(this.stripWhitespace(rules));
     if (this.compress) {
@@ -203,12 +205,14 @@ class Compiler {
     rawPrelude?: string,
   ) {
     if (this.identity && rawPrelude) {
-      return (
+      this.indent(1);
+      const result =
         this.emit(rawPrelude, position) +
         this.emit('{') +
-        this.mapVisit(declarations) +
-        this.emit('}')
-      );
+        this.identityVisitBlock(declarations, 'decls') +
+        this.emit('}');
+      this.indent(-1);
+      return result;
     }
     const stripped = this.stripWhitespace(declarations);
     if (this.compress) {
@@ -253,7 +257,7 @@ class Compiler {
       // Fallback to beautified when preserveFormatting was not used
       return this.stylesheet(node);
     }
-    return this.filterEmptyRules(rules).map(this.visit, this).join('');
+    return this.identityVisitBlock(rules as CssAllNodesAST[], 'stylesheet');
   }
 
   /**
@@ -294,6 +298,111 @@ class Compiler {
   }
 
   /**
+   * Check whether a node was newly created (not parsed from source).
+   * New nodes lack the raw formatting properties set by the parser.
+   */
+  private isNewNode(node: CssAllNodesAST): boolean {
+    switch (node.type) {
+      case CssTypes.whitespace:
+        return false;
+      case CssTypes.comment:
+        return !(node as CssCommonPositionAST).position;
+      case CssTypes.declaration:
+        return (node as CssDeclarationAST).rawBetween == null;
+      case CssTypes.rule:
+        return (node as CssRuleAST).rawPrelude == null;
+      default:
+        if ('rawPrelude' in node)
+          return !(node as { rawPrelude?: string }).rawPrelude;
+        if ('rawSource' in node)
+          return !(node as { rawSource?: string }).rawSource;
+        return !(node as CssCommonPositionAST).position;
+    }
+  }
+
+  /**
+   * Visit block children in identity mode, formatting newly added nodes
+   * with beautified output while preserving original formatting for
+   * existing nodes.
+   *
+   * @param nodes    - The child nodes to visit
+   * @param context  - 'decls' for declaration blocks, 'rules' for nested
+   *                   rule blocks (e.g. @media), 'stylesheet' for top-level
+   */
+  private identityVisitBlock(
+    nodes: Array<CssAllNodesAST>,
+    context: 'decls' | 'rules' | 'stylesheet',
+  ): string {
+    const filtered = this.filterEmptyRules(nodes);
+
+    // Fast path: no new nodes – visit normally
+    if (!filtered.some((n) => this.isNewNode(n))) {
+      return this.mapVisit(filtered);
+    }
+
+    let buf = '';
+    const needsDoubleNewline = context === 'rules' || context === 'stylesheet';
+
+    for (let i = 0; i < filtered.length; i++) {
+      const node = filtered[i];
+
+      if (!this.isNewNode(node)) {
+        buf += this.visit(node);
+        continue;
+      }
+
+      // ── New node: add proper separator before it ──
+
+      // Check whether the buffer already ends with \n (possibly followed
+      // by spaces that were originally the closing-brace indent).  If so,
+      // trim those trailing spaces – the beautified fallback of the new
+      // node will supply the correct indentation.
+      const lastNl = buf.lastIndexOf('\n');
+      const hasTrailingNewline =
+        lastNl >= 0 && buf.slice(lastNl + 1).trim() === '';
+
+      if (hasTrailingNewline) {
+        buf = buf.slice(0, lastNl + 1);
+      } else if (buf.length === 0 && context !== 'stylesheet') {
+        // First child in a block – add newline after opening brace
+        buf += '\n';
+      } else if (buf.length > 0) {
+        buf += '\n';
+      }
+
+      if (needsDoubleNewline && buf.length > 1 && !buf.endsWith('\n\n')) {
+        buf += '\n';
+      }
+
+      // Visit the node (uses beautified fallback since raw props are absent)
+      const str = this.visit(node);
+      if (str) buf += str;
+    }
+
+    // Add trailing newline + closing-brace indent when the last meaningful
+    // node is new (blocks only, not the top-level stylesheet)
+    if (context !== 'stylesheet') {
+      const lastMeaningful = [...filtered]
+        .reverse()
+        .find((n) => n.type !== CssTypes.whitespace);
+      if (
+        lastMeaningful &&
+        this.isNewNode(lastMeaningful) &&
+        buf.length > 0 &&
+        !buf.endsWith('\n')
+      ) {
+        buf += '\n';
+        // Indent for the closing brace (one level less than current)
+        if (this.level > 2) {
+          buf += this.indentation.repeat(this.level - 2);
+        }
+      }
+    }
+
+    return buf;
+  }
+
+  /**
    * Visit whitespace node.
    */
   whitespace(node: CssWhitespaceAST) {
@@ -310,6 +419,9 @@ class Compiler {
   comment(node: CssCommentAST) {
     if (this.compress) {
       return this.emit('', node.position);
+    }
+    if (this.identity && node.position) {
+      return this.emit(`/*${node.comment}*/`, node.position);
     }
     return this.emit(`${this.indent()}/*${node.comment}*/`, node.position);
   }
@@ -331,12 +443,17 @@ class Compiler {
    */
   layer(node: CssLayerAST) {
     if (this.identity && node.rawPrelude && node.rules) {
-      return (
+      this.indent(1);
+      const result =
         this.emit(node.rawPrelude, node.position) +
         this.emit('{') +
-        this.mapVisit(this.filterEmptyRules(<CssAllNodesAST[]>node.rules)) +
-        this.emit('}')
-      );
+        this.identityVisitBlock(
+          this.filterEmptyRules(<CssAllNodesAST[]>node.rules),
+          'rules',
+        ) +
+        this.emit('}');
+      this.indent(-1);
+      return result;
     }
     if (this.identity && !node.rules && node.rawSource) {
       return this.emit(node.rawSource, node.position);
@@ -388,12 +505,14 @@ class Compiler {
   document(node: CssDocumentAST) {
     const doc = `@${node.vendor || ''}document ${node.document}`;
     if (this.identity && node.rawPrelude) {
-      return (
+      this.indent(1);
+      const result =
         this.emit(node.rawPrelude, node.position) +
         this.emit('{') +
-        this.mapVisit(this.filterEmptyRules(node.rules)) +
-        this.emit('}')
-      );
+        this.identityVisitBlock(this.filterEmptyRules(node.rules), 'rules') +
+        this.emit('}');
+      this.indent(-1);
+      return result;
     }
     const rules = this.stripWhitespace(node.rules);
     if (this.compress) {
@@ -461,12 +580,14 @@ class Compiler {
    */
   keyframes(node: CssKeyframesAST) {
     if (this.identity && node.rawPrelude) {
-      return (
+      this.indent(1);
+      const result =
         this.emit(node.rawPrelude, node.position) +
         this.emit('{') +
-        this.mapVisit(node.keyframes) +
-        this.emit('}')
-      );
+        this.identityVisitBlock(node.keyframes, 'rules') +
+        this.emit('}');
+      this.indent(-1);
+      return result;
     }
     const frames = this.stripWhitespace(node.keyframes);
     if (this.compress) {
@@ -494,12 +615,14 @@ class Compiler {
   keyframe(node: CssKeyframeAST) {
     const decls = node.declarations;
     if (this.identity && node.rawPrelude) {
-      return (
+      this.indent(1);
+      const result =
         this.emit(node.rawPrelude, node.position) +
         this.emit('{') +
-        this.mapVisit(decls) +
-        this.emit('}')
-      );
+        this.identityVisitBlock(decls, 'decls') +
+        this.emit('}');
+      this.indent(-1);
+      return result;
     }
     const stripped = this.stripWhitespace(decls);
     if (this.compress) {
@@ -525,12 +648,14 @@ class Compiler {
    */
   page(node: CssPageAST) {
     if (this.identity && node.rawPrelude) {
-      return (
+      this.indent(1);
+      const result =
         this.emit(node.rawPrelude, node.position) +
         this.emit('{') +
-        this.mapVisit(node.declarations) +
-        this.emit('}')
-      );
+        this.identityVisitBlock(node.declarations, 'decls') +
+        this.emit('}');
+      this.indent(-1);
+      return result;
     }
     const decls = this.stripWhitespace(node.declarations);
     if (this.compress) {
@@ -560,12 +685,14 @@ class Compiler {
    */
   pageMarginBox(node: CssPageMarginBoxAST) {
     if (this.identity && node.rawPrelude) {
-      return (
+      this.indent(1);
+      const result =
         this.emit(node.rawPrelude, node.position) +
         this.emit('{') +
-        this.mapVisit(node.declarations) +
-        this.emit('}')
-      );
+        this.identityVisitBlock(node.declarations, 'decls') +
+        this.emit('}');
+      this.indent(-1);
+      return result;
     }
     const decls = this.stripWhitespace(node.declarations);
     if (this.compress) {
@@ -603,12 +730,14 @@ class Compiler {
    */
   host(node: CssHostAST) {
     if (this.identity && node.rawPrelude) {
-      return (
+      this.indent(1);
+      const result =
         this.emit(node.rawPrelude, node.position) +
         this.emit('{') +
-        this.mapVisit(this.filterEmptyRules(node.rules)) +
-        this.emit('}')
-      );
+        this.identityVisitBlock(this.filterEmptyRules(node.rules), 'rules') +
+        this.emit('}');
+      this.indent(-1);
+      return result;
     }
     const rules = this.stripWhitespace(node.rules);
     if (this.compress) {
@@ -681,12 +810,14 @@ class Compiler {
    */
   scope(node: CssScopeAST) {
     if (this.identity && node.rawPrelude) {
-      return (
+      this.indent(1);
+      const result =
         this.emit(node.rawPrelude, node.position) +
         this.emit('{') +
-        this.mapVisit(this.filterEmptyRules(node.rules)) +
-        this.emit('}')
-      );
+        this.identityVisitBlock(this.filterEmptyRules(node.rules), 'rules') +
+        this.emit('}');
+      this.indent(-1);
+      return result;
     }
     const prelude = node.scope ? ` ${node.scope}` : '';
     return this.rulesBlock(
@@ -725,12 +856,17 @@ class Compiler {
    */
   genericAtRule(node: CssGenericAtRuleAST) {
     if (this.identity && node.rawPrelude && node.rules) {
-      return (
+      this.indent(1);
+      const result =
         this.emit(node.rawPrelude, node.position) +
         this.emit('{') +
-        this.mapVisit(this.filterEmptyRules(<CssAllNodesAST[]>node.rules)) +
-        this.emit('}')
-      );
+        this.identityVisitBlock(
+          this.filterEmptyRules(<CssAllNodesAST[]>node.rules),
+          'rules',
+        ) +
+        this.emit('}');
+      this.indent(-1);
+      return result;
     }
     const prelude = node.prelude ? ` ${node.prelude}` : '';
     const rules = node.rules
@@ -772,12 +908,14 @@ class Compiler {
     const decls = node.declarations;
 
     if (this.identity && node.rawPrelude) {
-      return (
+      this.indent(1);
+      const result =
         this.emit(node.rawPrelude, node.position) +
         this.emit('{') +
-        this.mapVisit(decls) +
-        this.emit('}')
-      );
+        this.identityVisitBlock(decls, 'decls') +
+        this.emit('}');
+      this.indent(-1);
+      return result;
     }
 
     const stripped = this.stripWhitespace(decls);
