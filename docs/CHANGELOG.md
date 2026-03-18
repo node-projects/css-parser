@@ -5,7 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [5.0.0] - 2026-03.18
+
+### Changed
+- Fork from Adobe's `@adobe/css-tools` library to `@node-projects/css-tools` package
+- Only ESM code in package
 
 ### Added
 - Add `preserveFormatting` parser option to insert whitespace AST nodes and store raw formatting properties for identity round-trip
