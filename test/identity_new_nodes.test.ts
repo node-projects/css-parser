@@ -27,6 +27,23 @@ describe('identity mode with new declarations', () => {
     expect(output).toBe('.foo {\n  color: red;\n  background: blue;\n}\n');
   });
 
+  it('should format a new declaration appended to a rule with more indent', () => {
+    const css = '* {\n    color: red;\n}\n';
+    const ast = parse(css, { preserveFormatting: true });
+
+    const rule = ast.stylesheet.rules.find(
+      (r) => r.type === CssTypes.rule,
+    ) as CssRuleAST;
+    rule.declarations.push({
+      type: CssTypes.declaration,
+      property: 'background',
+      value: 'blue',
+    } as CssDeclarationAST);
+
+    const output = stringify(ast, { identity: true });
+    expect(output).toBe('* {\n    color: red;\n    background: blue;\n}\n');
+  });
+
   it('should format multiple new declarations appended to a rule', () => {
     const css = '.foo {\n  color: red;\n}\n';
     const ast = parse(css, { preserveFormatting: true });
