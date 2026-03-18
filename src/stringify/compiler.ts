@@ -321,6 +321,33 @@ class Compiler {
   }
 
   /**
+   * Detect the indentation used inside a block by examining existing
+   * whitespace nodes.  Returns the full indent string (e.g. '    ' for
+   * 4-space indent) or null when no indentation can be inferred.
+   */
+  private detectBlockIndent(nodes: Array<CssAllNodesAST>): string | null {
+    for (let i = 0; i < nodes.length; i++) {
+      const node = nodes[i];
+      if (node.type !== CssTypes.whitespace) continue;
+      const ws = (node as CssWhitespaceAST).value;
+      const lastNl = ws.lastIndexOf('\n');
+      if (lastNl < 0) continue;
+      const afterNl = ws.slice(lastNl + 1);
+      // Accept only non-empty, whitespace-only strings that precede an
+      // actual content node (declaration, rule, comment, …).
+      if (
+        afterNl.length > 0 &&
+        afterNl.trim() === '' &&
+        i + 1 < nodes.length &&
+        nodes[i + 1].type !== CssTypes.whitespace
+      ) {
+        return afterNl;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Visit block children in identity mode, formatting newly added nodes
    * with beautified output while preserving original formatting for
    * existing nodes.
@@ -338,6 +365,18 @@ class Compiler {
     // Fast path: no new nodes – visit normally
     if (!filtered.some((n) => this.isNewNode(n))) {
       return this.mapVisit(filtered);
+    }
+
+    // Detect indentation from existing whitespace nodes so that newly
+    // inserted nodes match the surrounding formatting.
+    const savedIndentation = this.indentation;
+    const detectedIndent = this.detectBlockIndent(filtered);
+    if (detectedIndent != null) {
+      const levels = Math.max(this.level - 1, 1);
+      this.indentation = detectedIndent.slice(
+        0,
+        Math.ceil(detectedIndent.length / levels),
+      );
     }
 
     let buf = '';
@@ -399,6 +438,7 @@ class Compiler {
       }
     }
 
+    this.indentation = savedIndentation;
     return buf;
   }
 

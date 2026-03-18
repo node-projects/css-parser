@@ -178,6 +178,67 @@ describe('identity mode with new nodes in @media', () => {
 });
 
 // ---------------------------------------------------------------------------
+// New nodes should match existing indentation (not just default 2-space)
+// ---------------------------------------------------------------------------
+describe('identity mode matches existing indentation for new nodes', () => {
+  it('should use 4-space indent when existing declarations use 4 spaces', () => {
+    const css = '* {\n    font-size: 20px;\n}\n';
+    const ast = parse(css, { preserveFormatting: true });
+
+    const rule = ast.stylesheet.rules.find(
+      (r) => r.type === CssTypes.rule,
+    ) as CssRuleAST;
+    rule.declarations.push({
+      type: CssTypes.declaration,
+      property: 'color',
+      value: 'red',
+    } as CssDeclarationAST);
+
+    const output = stringify(ast, { identity: true });
+    expect(output).toBe('* {\n    font-size: 20px;\n    color: red;\n}\n');
+  });
+
+  it('should use tab indent when existing declarations use tabs', () => {
+    const css = '* {\n\tfont-size: 20px;\n}\n';
+    const ast = parse(css, { preserveFormatting: true });
+
+    const rule = ast.stylesheet.rules.find(
+      (r) => r.type === CssTypes.rule,
+    ) as CssRuleAST;
+    rule.declarations.push({
+      type: CssTypes.declaration,
+      property: 'color',
+      value: 'red',
+    } as CssDeclarationAST);
+
+    const output = stringify(ast, { identity: true });
+    expect(output).toBe('* {\n\tfont-size: 20px;\n\tcolor: red;\n}\n');
+  });
+
+  it('should use 4-space indent in nested @media blocks', () => {
+    const css = '@media screen {\n    .foo {\n        color: red;\n    }\n}\n';
+    const ast = parse(css, { preserveFormatting: true });
+
+    const media = ast.stylesheet.rules.find(
+      (r) => r.type === CssTypes.media,
+    ) as CssMediaAST;
+    const rule = media.rules.find(
+      (r) => r.type === CssTypes.rule,
+    ) as CssRuleAST;
+    rule.declarations.push({
+      type: CssTypes.declaration,
+      property: 'background',
+      value: 'blue',
+    } as CssDeclarationAST);
+
+    const output = stringify(ast, { identity: true });
+    expect(output).toBe(
+      '@media screen {\n    .foo {\n        color: red;\n        background: blue;\n    }\n}\n',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Existing identity round-trip must still work
 // ---------------------------------------------------------------------------
 describe('identity mode preserves existing formatting', () => {
