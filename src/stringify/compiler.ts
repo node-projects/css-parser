@@ -393,9 +393,9 @@ class Compiler {
       ) {
         buf += '\n';
         // Indent for the closing brace (one level less than current)
-        if (this.level > 2) {
-          buf += this.indentation.repeat(this.level - 2);
-        }
+        this.indent(-1);
+        buf += this.indent();
+        this.indent(1);
       }
     }
 
@@ -420,10 +420,8 @@ class Compiler {
     if (this.compress) {
       return this.emit('', node.position);
     }
-    if (this.identity && node.position) {
-      return this.emit(`/*${node.comment}*/`, node.position);
-    }
-    return this.emit(`${this.indent()}/*${node.comment}*/`, node.position);
+    const indent = this.identity && node.position ? '' : this.indent();
+    return this.emit(`${indent}/*${node.comment}*/`, node.position);
   }
 
   /**
