@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import benchmark from 'benchmark';
 import bytes from 'bytes';
-import { parse } from '../dist/esm/adobe-css-tools.mjs';
+import { parse } from '../dist/index-min.js';
 
 const small = fs.readFileSync('benchmark/small.css', 'utf8');
 const large = fs.readFileSync('benchmark/large.css', 'utf8');

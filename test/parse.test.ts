@@ -1,5 +1,5 @@
-import type CssParseError from '../src/CssParseError';
-import { parse, stringify } from '../src/index';
+import type CssParseError from '../src/CssParseError.js';
+import { parse, stringify } from '../src/index.js';
 import {
   type CssDeclarationAST,
   type CssMediaAST,
@@ -7,7 +7,7 @@ import {
   type CssPageMarginBoxAST,
   type CssRuleAST,
   CssTypes,
-} from '../src/type';
+} from '../src/type.js';
 
 describe('parse(str)', () => {
   it('should save the filename and source', () => {

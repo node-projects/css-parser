@@ -1,5 +1,5 @@
-import type { CssStylesheetAST } from '../type';
-import Compiler, { type CompilerOptions } from './compiler';
+import type { CssStylesheetAST } from '../type.js';
+import Compiler, { type CompilerOptions } from './compiler.js';
 
 export type { CompilerOptions };
 

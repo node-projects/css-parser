@@ -1,5 +1,5 @@
-import CssParseError from '../CssParseError';
-import Position from '../CssPosition';
+import CssParseError from '../CssParseError.js';
+import Position from '../CssPosition.js';
 import {
   type CssAtRuleAST,
   type CssCharsetAST,
@@ -32,12 +32,12 @@ import {
   CssTypes,
   type CssViewTransitionAST,
   type CssWhitespaceAST,
-} from '../type';
+} from '../type.js';
 import {
   indexOfArrayWithBracketAndQuoteSupport,
   splitWithBracketAndQuoteSupport,
-} from '../utils/stringSearch';
-import { Ch_AT, Ch_CLOSE, Ch_SLASH, Ch_STAR, Lexer } from './lexer';
+} from '../utils/stringSearch.js';
+import { Ch_AT, Ch_CLOSE, Ch_SLASH, Ch_STAR, Lexer } from './lexer.js';
 
 // http://www.w3.org/TR/CSS21/grammar.html
 // https://github.com/visionmedia/css-parse/pull/49#issuecomment-30088027

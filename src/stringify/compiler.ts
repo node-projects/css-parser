@@ -30,7 +30,7 @@ import {
   CssTypes,
   type CssViewTransitionAST,
   type CssWhitespaceAST,
-} from '../type';
+} from '../type.js';
 
 export type CompilerOptions = {
   indent?: string;

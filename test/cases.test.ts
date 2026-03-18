@@ -1,6 +1,11 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { parse, stringify } from '../src/index';
+import { dirname } from 'node:path';
+
+import { fileURLToPath } from 'node:url';
+import { parse, stringify } from '../src/index.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const cases = fs.readdirSync(path.join(__dirname, 'cases'));
 cases.forEach((name: string) => {

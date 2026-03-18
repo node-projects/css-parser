@@ -1,5 +1,9 @@
-import { parse, stringify } from '../src/index';
-import { type CssDeclarationAST, type CssRuleAST, CssTypes } from '../src/type';
+import { parse, stringify } from '../src/index.js';
+import {
+  type CssDeclarationAST,
+  type CssRuleAST,
+  CssTypes,
+} from '../src/type.js';
 
 /**
  * Helper: parse CSS, stringify, re-parse, re-stringify and assert round-trip

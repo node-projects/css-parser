@@ -1,10 +1,10 @@
-import { default as parseFn } from './parse';
-import { default as stringifyFn } from './stringify';
+import { default as parseFn } from './parse/index.js';
+import { default as stringifyFn } from './stringify/index.js';
 export const parse = parseFn;
 export const stringify = stringifyFn;
-export * from './CssParseError';
-export * from './CssPosition';
-export type { ParseOptions } from './parse';
-export type { CompilerOptions } from './stringify';
-export * from './type';
+export * from './CssParseError.js';
+export * from './CssPosition.js';
+export type { ParseOptions } from './parse/index.js';
+export type { CompilerOptions } from './stringify/index.js';
+export * from './type.js';
 export default { parse, stringify };
