@@ -31,6 +31,7 @@ import {
   type CssSupportsAST,
   CssTypes,
   type CssViewTransitionAST,
+  type CssWhitespaceAST,
 } from '../type';
 import {
   indexOfArrayWithBracketAndQuoteSupport,
@@ -103,27 +104,75 @@ const re_atCharset =
 const re_atNamespace =
   /@namespace\s*((?::?[^;'"]|"(?:\\"|[^"])*?"|'(?:\\'|[^'])*?')+)(?:;|$)/y;
 
+export type ParseOptions = {
+  source?: string;
+  silent?: boolean;
+  preserveFormatting?: boolean;
+};
+
 export const parse = (
   css: string,
-  options?: { source?: string; silent?: boolean },
+  options?: ParseOptions,
 ): CssStylesheetAST => {
   options = options || {};
 
   const lexer = new Lexer(css);
+  const preserveFormatting = options.preserveFormatting ?? false;
+
+  /**
+   * Insert whitespace AST nodes between sibling nodes in an array.
+   * Uses position offsets from the source to compute whitespace text.
+   */
+  function insertWhitespace<T extends CssCommonPositionAST>(
+    nodes: Array<T | CssWhitespaceAST>,
+    containerStart: number,
+    containerEnd: number,
+  ): Array<T | CssWhitespaceAST> {
+    if (!preserveFormatting) {
+      return nodes;
+    }
+    const result: Array<T | CssWhitespaceAST> = [];
+    let cursor = containerStart;
+
+    for (const node of nodes) {
+      const start = (node as CssCommonPositionAST).position?.start?.offset;
+      if (start != null && start > cursor) {
+        const wsText = css.slice(cursor, start);
+        if (wsText) {
+          result.push({ type: CssTypes.whitespace, value: wsText });
+        }
+      }
+      result.push(node);
+      const end = (node as CssCommonPositionAST).position?.end?.offset;
+      if (end != null) {
+        cursor = end;
+      }
+    }
+
+    if (cursor < containerEnd) {
+      const wsText = css.slice(cursor, containerEnd);
+      if (wsText) {
+        result.push({ type: CssTypes.whitespace, value: wsText });
+      }
+    }
+
+    return result;
+  }
 
   /**
    * Mark position and patch `node.position`.
    */
   function position() {
-    const start = lexer.getPosition();
+    const start = preserveFormatting
+      ? { ...lexer.getPosition(), offset: lexer.pos }
+      : lexer.getPosition();
     return <T1 extends CssCommonPositionAST>(
       node: Omit<T1, 'position'>,
     ): T1 => {
-      (node as T1).position = new Position(
-        start,
-        lexer.getPosition(),
-        options?.source || '',
-      );
+      const end = preserveFormatting
+        ? { ...lexer.getPosition(), offset: lexer.pos }
+        : lexer.getPosition();
+      (node as T1).position = new Position(start, end, options?.source || '');
       lexer.skipWhitespace();
       return node as T1;
     };
@@ -160,7 +209,7 @@ export const parse = (
       type: CssTypes.stylesheet,
       stylesheet: {
         source: options?.source,
-        rules: rulesList,
+        rules: insertWhitespace(rulesList, 0, css.length),
         parsingErrors: errorsList,
       },
     };
@@ -173,6 +222,14 @@ export const parse = (
    */
   function open(): boolean {
     return lexer.tryOpenBrace();
+  }
+
+  /**
+   * Track brace position and call open().
+   */
+  function openWithPos(): { ok: boolean; afterOpen: number } {
+    const afterOpen = lexer.pos + 1;
+    return { ok: lexer.tryOpenBrace(), afterOpen };
   }
 
   /**
@@ -287,6 +344,7 @@ export const parse = (
    */
   function declaration(): CssDeclarationAST | undefined {
     const pos = position();
+    const declStart = preserveFormatting ? lexer.pos : 0;
 
     // prop
     const propMatch = lexer.matchRegex(re_propName);
@@ -294,28 +352,37 @@ export const parse = (
       return;
     }
     const propValue = trim(propMatch[0]);
+    const propClean = propValue.replace(commentRegex, '');
 
     // :
     if (!lexer.tryColon()) {
       return error("property missing ':'");
     }
+    const afterColon = preserveFormatting ? lexer.pos : 0;
 
     // val
     let value = '';
+    let rawValText = '';
     const absEndPos = indexOfArrayWithBracketAndQuoteSupport(
       lexer.input,
       [';', '}'],
       lexer.pos,
     );
     if (absEndPos !== -1) {
-      value = lexer.consumeTo(absEndPos);
-      value = trim(value).replace(commentRegex, '');
+      rawValText = lexer.consumeTo(absEndPos);
+      value = trim(rawValText).replace(commentRegex, '');
     }
 
     const ret = pos<CssDeclarationAST>({
       type: CssTypes.declaration,
-      property: propValue.replace(commentRegex, ''),
+      property: propClean,
       value: value,
+      ...(preserveFormatting
+        ? {
+            rawBetween: css.slice(declStart + propClean.length, afterColon),
+            rawValue: rawValText,
+          }
+        : {}),
     });
 
     // ;
@@ -327,13 +394,21 @@ export const parse = (
   /**
    * Parse declarations (without nesting support).
    * Used by @font-face, @page, keyframes.
+   * Returns { decls, afterOpen, beforeClose } when preserveFormatting is true.
    */
-  function declarations() {
-    const decls: Array<CssDeclarationAST | CssCommentAST> = [];
-
+  function declarations():
+    | {
+        decls: Array<CssDeclarationAST | CssCommentAST | CssWhitespaceAST>;
+        afterOpen: number;
+        beforeClose: number;
+      }
+    | undefined {
+    const afterOpen = preserveFormatting ? lexer.pos + 1 : 0;
     if (!open()) {
-      return error("missing '{'");
+      error("missing '{'");
+      return;
     }
+    const decls: Array<CssDeclarationAST | CssCommentAST> = [];
     comments(decls);
 
     // declarations
@@ -366,10 +441,16 @@ export const parse = (
       }
     }
 
+    const beforeClose = preserveFormatting ? lexer.pos : 0;
     if (!close()) {
-      return error("missing '}'");
+      error("missing '}'");
+      return;
     }
-    return decls;
+    return {
+      decls: insertWhitespace(decls, afterOpen, beforeClose),
+      afterOpen,
+      beforeClose,
+    };
   }
 
   /**
@@ -411,12 +492,20 @@ export const parse = (
    * Handles declarations, comments, nested rules, and nested at-rules.
    */
   function ruleBody():
-    | Array<CssDeclarationAST | CssCommentAST | CssAtRuleAST>
+    | {
+        items: Array<
+          CssDeclarationAST | CssCommentAST | CssAtRuleAST | CssWhitespaceAST
+        >;
+        afterOpen: number;
+        beforeClose: number;
+      }
     | undefined {
     const items: Array<CssDeclarationAST | CssCommentAST | CssAtRuleAST> = [];
+    const afterOpen = preserveFormatting ? lexer.pos + 1 : 0;
 
     if (!open()) {
-      return error("missing '{'");
+      error("missing '{'");
+      return;
     }
     comments(items);
 
@@ -463,10 +552,16 @@ export const parse = (
       break;
     }
 
+    const beforeClose = preserveFormatting ? lexer.pos : 0;
     if (!close()) {
-      return error("missing '}'");
+      error("missing '}'");
+      return;
     }
-    return items;
+    return {
+      items: insertWhitespace(items, afterOpen, beforeClose),
+      afterOpen,
+      beforeClose,
+    };
   }
 
   /**
@@ -474,7 +569,7 @@ export const parse = (
    * Used by block at-rules (media, supports, etc.) to support
    * both top-level rules and declarations when nested inside a rule.
    */
-  function rulesOrDeclarations() {
+  function rulesOrDeclarations(afterOpen?: number) {
     const items: Array<CssAtRuleAST | CssDeclarationAST | CssCommentAST> = [];
     whitespace();
     comments(items);
@@ -520,6 +615,10 @@ export const parse = (
       }
       break;
     }
+    if (preserveFormatting && afterOpen != null) {
+      const beforeClose = lexer.pos;
+      return insertWhitespace(items, afterOpen, beforeClose);
+    }
     return items;
   }
 
@@ -529,6 +628,7 @@ export const parse = (
   function keyframe() {
     const vals = [];
     const pos = position();
+    const kfStart = preserveFormatting ? lexer.pos : 0;
 
     let m = lexer.matchRegex(re_keyframeValue);
     while (m) {
@@ -541,10 +641,17 @@ export const parse = (
       return;
     }
 
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const parsed = declarations();
+    if (!parsed) return;
+
     return pos<CssKeyframeAST>({
       type: CssTypes.keyframe,
       values: vals,
-      declarations: declarations() || [],
+      declarations: parsed.decls,
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(kfStart, braceOffset) }
+        : {}),
     });
   }
 
@@ -553,6 +660,7 @@ export const parse = (
    */
   function atKeyframes(): CssKeyframesAST | undefined {
     const pos = position();
+    const kfStart = preserveFormatting ? lexer.pos : 0;
     const m1 = lexer.matchRegex(re_keyframesName);
 
     if (!m1) {
@@ -567,6 +675,8 @@ export const parse = (
     }
     const name = m2[1];
 
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const afterOpen = preserveFormatting ? lexer.pos + 1 : 0;
     if (!open()) {
       return error("@keyframes missing '{'");
     }
@@ -579,6 +689,7 @@ export const parse = (
       frame = keyframe();
     }
 
+    const beforeClose = preserveFormatting ? lexer.pos : 0;
     if (!close()) {
       return error("@keyframes missing '}'");
     }
@@ -587,7 +698,10 @@ export const parse = (
       type: CssTypes.keyframes,
       name: name,
       vendor: vendor,
-      keyframes: frames,
+      keyframes: insertWhitespace(frames, afterOpen, beforeClose),
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(kfStart, braceOffset) }
+        : {}),
     });
   }
 
@@ -596,6 +710,7 @@ export const parse = (
    */
   function atSupports(): CssSupportsAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_supports);
 
     if (!m) {
@@ -603,11 +718,15 @@ export const parse = (
     }
     const supports = trim(m[1]);
 
-    if (!open()) {
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const { ok: opened, afterOpen } = openWithPos();
+    if (!opened) {
       return error("@supports missing '{'");
     }
 
-    const style = rulesOrDeclarations();
+    const style = rulesOrDeclarations(
+      preserveFormatting ? afterOpen : undefined,
+    );
 
     if (!close()) {
       return error("@supports missing '}'");
@@ -617,6 +736,9 @@ export const parse = (
       type: CssTypes.supports,
       supports: supports,
       rules: style,
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(atStart, braceOffset) }
+        : {}),
     });
   }
 
@@ -625,17 +747,22 @@ export const parse = (
    */
   function atHost() {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_host);
 
     if (!m) {
       return;
     }
 
-    if (!open()) {
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const { ok: opened, afterOpen } = openWithPos();
+    if (!opened) {
       return error("@host missing '{'");
     }
 
-    const style = rulesOrDeclarations();
+    const style = rulesOrDeclarations(
+      preserveFormatting ? afterOpen : undefined,
+    );
 
     if (!close()) {
       return error("@host missing '}'");
@@ -644,6 +771,9 @@ export const parse = (
     return pos<CssHostAST>({
       type: CssTypes.host,
       rules: style,
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(atStart, braceOffset) }
+        : {}),
     });
   }
 
@@ -652,6 +782,7 @@ export const parse = (
    */
   function atContainer(): CssContainerAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_container);
 
     if (!m) {
@@ -659,11 +790,15 @@ export const parse = (
     }
     const container = trim(m[1]);
 
-    if (!open()) {
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const { ok: opened, afterOpen } = openWithPos();
+    if (!opened) {
       return error("@container missing '{'");
     }
 
-    const style = rulesOrDeclarations();
+    const style = rulesOrDeclarations(
+      preserveFormatting ? afterOpen : undefined,
+    );
 
     if (!close()) {
       return error("@container missing '}'");
@@ -673,6 +808,9 @@ export const parse = (
       type: CssTypes.container,
       container: container,
       rules: style,
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(atStart, braceOffset) }
+        : {}),
     });
   }
 
@@ -681,6 +819,7 @@ export const parse = (
    */
   function atLayer(): CssLayerAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_layer);
 
     if (!m) {
@@ -688,15 +827,28 @@ export const parse = (
     }
     const layer = trim(m[1]);
 
-    if (!open()) {
-      lexer.skipSemicolonAndWhitespace();
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const { ok: opened, afterOpen } = openWithPos();
+    if (!opened) {
+      // Statement form: @layer name;
+      // Consume the semicolon so position end includes it
+      if (lexer.charCodeAt() === 59) {
+        // 59 = ';'
+        lexer.consume(1);
+      }
+      const rawSrc = preserveFormatting
+        ? css.slice(atStart, lexer.pos)
+        : undefined;
       return pos<CssLayerAST>({
         type: CssTypes.layer,
         layer: layer,
+        ...(rawSrc ? { rawSource: rawSrc } : {}),
       });
     }
 
-    const style = rulesOrDeclarations();
+    const style = rulesOrDeclarations(
+      preserveFormatting ? afterOpen : undefined,
+    );
 
     if (!close()) {
       return error("@layer missing '}'");
@@ -706,6 +858,9 @@ export const parse = (
       type: CssTypes.layer,
       layer: layer,
       rules: style,
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(atStart, braceOffset) }
+        : {}),
     });
   }
 
@@ -714,6 +869,7 @@ export const parse = (
    */
   function atMedia(): CssMediaAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_media);
 
     if (!m) {
@@ -721,11 +877,15 @@ export const parse = (
     }
     const media = trim(m[1]);
 
-    if (!open()) {
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const { ok: opened, afterOpen } = openWithPos();
+    if (!opened) {
       return error("@media missing '{'");
     }
 
-    const style = rulesOrDeclarations();
+    const style = rulesOrDeclarations(
+      preserveFormatting ? afterOpen : undefined,
+    );
 
     if (!close()) {
       return error("@media missing '}'");
@@ -735,6 +895,9 @@ export const parse = (
       type: CssTypes.media,
       media: media,
       rules: style,
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(atStart, braceOffset) }
+        : {}),
     });
   }
 
@@ -743,15 +906,20 @@ export const parse = (
    */
   function atCustomMedia(): CssCustomMediaAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_customMedia);
     if (!m) {
       return;
     }
+    const rawSrc = preserveFormatting
+      ? css.slice(atStart, lexer.pos)
+      : undefined;
 
     return pos<CssCustomMediaAST>({
       type: CssTypes.customMedia,
       name: trim(m[1]),
       media: trim(m[2]),
+      ...(rawSrc ? { rawSource: rawSrc } : {}),
     });
   }
 
@@ -760,12 +928,15 @@ export const parse = (
    */
   function atPageMarginBox(): CssPageMarginBoxAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_pageMarginBox);
     if (!m) {
       return;
     }
     const name = m[1];
 
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const afterOpen = preserveFormatting ? lexer.pos + 1 : 0;
     if (!open()) {
       return error(`@${name} missing '{'`);
     }
@@ -776,6 +947,7 @@ export const parse = (
       comments(decls);
       decl = declaration();
     }
+    const beforeClose = preserveFormatting ? lexer.pos : 0;
     if (!close()) {
       return error(`@${name} missing '}'`);
     }
@@ -783,7 +955,10 @@ export const parse = (
     return pos<CssPageMarginBoxAST>({
       type: CssTypes.pageMarginBox,
       name: name,
-      declarations: decls,
+      declarations: insertWhitespace(decls, afterOpen, beforeClose),
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(atStart, braceOffset) }
+        : {}),
     });
   }
 
@@ -792,6 +967,7 @@ export const parse = (
    */
   function atPage(): CssPageAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_page);
     if (!m) {
       return;
@@ -799,6 +975,8 @@ export const parse = (
 
     const sel = selector() || [];
 
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const afterOpen = preserveFormatting ? lexer.pos + 1 : 0;
     if (!open()) {
       return error("@page missing '{'");
     }
@@ -824,6 +1002,7 @@ export const parse = (
       break;
     }
 
+    const beforeClose = preserveFormatting ? lexer.pos : 0;
     if (!close()) {
       return error("@page missing '}'");
     }
@@ -831,7 +1010,10 @@ export const parse = (
     return pos<CssPageAST>({
       type: CssTypes.page,
       selectors: sel,
-      declarations: decls,
+      declarations: insertWhitespace(decls, afterOpen, beforeClose),
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(atStart, braceOffset) }
+        : {}),
     });
   }
 
@@ -840,6 +1022,7 @@ export const parse = (
    */
   function atDocument(): CssDocumentAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_document);
     if (!m) {
       return;
@@ -848,11 +1031,15 @@ export const parse = (
     const vendor = trim(m[1]);
     const doc = trim(m[2]);
 
-    if (!open()) {
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const { ok: opened, afterOpen } = openWithPos();
+    if (!opened) {
       return error("@document missing '{'");
     }
 
-    const style = rulesOrDeclarations();
+    const style = rulesOrDeclarations(
+      preserveFormatting ? afterOpen : undefined,
+    );
 
     if (!close()) {
       return error("@document missing '}'");
@@ -863,6 +1050,9 @@ export const parse = (
       document: doc,
       vendor: vendor,
       rules: style,
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(atStart, braceOffset) }
+        : {}),
     });
   }
 
@@ -871,11 +1061,14 @@ export const parse = (
    */
   function atFontFace(): CssFontFaceAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_fontFace);
     if (!m) {
       return;
     }
 
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const afterOpen = preserveFormatting ? lexer.pos + 1 : 0;
     if (!open()) {
       return error("@font-face missing '{'");
     }
@@ -889,13 +1082,17 @@ export const parse = (
       decl = declaration();
     }
 
+    const beforeClose = preserveFormatting ? lexer.pos : 0;
     if (!close()) {
       return error("@font-face missing '}'");
     }
 
     return pos<CssFontFaceAST>({
       type: CssTypes.fontFace,
-      declarations: decls,
+      declarations: insertWhitespace(decls, afterOpen, beforeClose),
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(atStart, braceOffset) }
+        : {}),
     });
   }
 
@@ -904,12 +1101,15 @@ export const parse = (
    */
   function atProperty(): CssPropertyAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_property);
     if (!m) {
       return;
     }
     const name = m[1];
 
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const afterOpen = preserveFormatting ? lexer.pos + 1 : 0;
     if (!open()) {
       return error("@property missing '{'");
     }
@@ -920,6 +1120,7 @@ export const parse = (
       comments(decls);
       decl = declaration();
     }
+    const beforeClose = preserveFormatting ? lexer.pos : 0;
     if (!close()) {
       return error("@property missing '}'");
     }
@@ -927,7 +1128,10 @@ export const parse = (
     return pos<CssPropertyAST>({
       type: CssTypes.property,
       name: name,
-      declarations: decls,
+      declarations: insertWhitespace(decls, afterOpen, beforeClose),
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(atStart, braceOffset) }
+        : {}),
     });
   }
 
@@ -936,12 +1140,15 @@ export const parse = (
    */
   function atCounterStyle(): CssCounterStyleAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_counterStyle);
     if (!m) {
       return;
     }
     const name = m[1];
 
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const afterOpen = preserveFormatting ? lexer.pos + 1 : 0;
     if (!open()) {
       return error("@counter-style missing '{'");
     }
@@ -952,6 +1159,7 @@ export const parse = (
       comments(decls);
       decl = declaration();
     }
+    const beforeClose = preserveFormatting ? lexer.pos : 0;
     if (!close()) {
       return error("@counter-style missing '}'");
     }
@@ -959,7 +1167,10 @@ export const parse = (
     return pos<CssCounterStyleAST>({
       type: CssTypes.counterStyle,
       name: name,
-      declarations: decls,
+      declarations: insertWhitespace(decls, afterOpen, beforeClose),
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(atStart, braceOffset) }
+        : {}),
     });
   }
 
@@ -968,17 +1179,22 @@ export const parse = (
    */
   function atFontFeatureValues(): CssFontFeatureValuesAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_fontFeatureValues);
     if (!m) {
       return;
     }
     const fontFamily = trim(m[1]);
 
-    if (!open()) {
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const { ok: opened, afterOpen } = openWithPos();
+    if (!opened) {
       return error("@font-feature-values missing '{'");
     }
 
-    const style = rulesOrDeclarations();
+    const style = rulesOrDeclarations(
+      preserveFormatting ? afterOpen : undefined,
+    );
 
     if (!close()) {
       return error("@font-feature-values missing '}'");
@@ -988,6 +1204,9 @@ export const parse = (
       type: CssTypes.fontFeatureValues,
       fontFamily: fontFamily,
       rules: style,
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(atStart, braceOffset) }
+        : {}),
     });
   }
 
@@ -996,17 +1215,22 @@ export const parse = (
    */
   function atScope(): CssScopeAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_scope);
     if (!m) {
       return;
     }
     const scope = trim(m[1]);
 
-    if (!open()) {
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const { ok: opened, afterOpen } = openWithPos();
+    if (!opened) {
       return error("@scope missing '{'");
     }
 
-    const style = rulesOrDeclarations();
+    const style = rulesOrDeclarations(
+      preserveFormatting ? afterOpen : undefined,
+    );
 
     if (!close()) {
       return error("@scope missing '}'");
@@ -1016,6 +1240,9 @@ export const parse = (
       type: CssTypes.scope,
       scope: scope,
       rules: style,
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(atStart, braceOffset) }
+        : {}),
     });
   }
 
@@ -1024,11 +1251,14 @@ export const parse = (
    */
   function atViewTransition(): CssViewTransitionAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_viewTransition);
     if (!m) {
       return;
     }
 
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const afterOpen = preserveFormatting ? lexer.pos + 1 : 0;
     if (!open()) {
       return error("@view-transition missing '{'");
     }
@@ -1039,13 +1269,17 @@ export const parse = (
       comments(decls);
       decl = declaration();
     }
+    const beforeClose = preserveFormatting ? lexer.pos : 0;
     if (!close()) {
       return error("@view-transition missing '}'");
     }
 
     return pos<CssViewTransitionAST>({
       type: CssTypes.viewTransition,
-      declarations: decls,
+      declarations: insertWhitespace(decls, afterOpen, beforeClose),
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(atStart, braceOffset) }
+        : {}),
     });
   }
 
@@ -1054,12 +1288,15 @@ export const parse = (
    */
   function atPositionTry(): CssPositionTryAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_positionTry);
     if (!m) {
       return;
     }
     const name = m[1];
 
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const afterOpen = preserveFormatting ? lexer.pos + 1 : 0;
     if (!open()) {
       return error("@position-try missing '{'");
     }
@@ -1070,6 +1307,7 @@ export const parse = (
       comments(decls);
       decl = declaration();
     }
+    const beforeClose = preserveFormatting ? lexer.pos : 0;
     if (!close()) {
       return error("@position-try missing '}'");
     }
@@ -1077,7 +1315,10 @@ export const parse = (
     return pos<CssPositionTryAST>({
       type: CssTypes.positionTry,
       name: name,
-      declarations: decls,
+      declarations: insertWhitespace(decls, afterOpen, beforeClose),
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(atStart, braceOffset) }
+        : {}),
     });
   }
 
@@ -1086,15 +1327,20 @@ export const parse = (
    */
   function atStartingStyle(): CssStartingStyleAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_startingStyle);
     if (!m) {
       return;
     }
 
-    if (!open()) {
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const { ok: opened, afterOpen } = openWithPos();
+    if (!opened) {
       return error("@starting-style missing '{'");
     }
-    const style = rulesOrDeclarations();
+    const style = rulesOrDeclarations(
+      preserveFormatting ? afterOpen : undefined,
+    );
 
     if (!close()) {
       return error("@starting-style missing '}'");
@@ -1103,6 +1349,9 @@ export const parse = (
     return pos<CssStartingStyleAST>({
       type: CssTypes.startingStyle,
       rules: style,
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(atStart, braceOffset) }
+        : {}),
     });
   }
 
@@ -1111,13 +1360,18 @@ export const parse = (
    */
   function atImport(): CssImportAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_atImport);
     if (!m) {
       return;
     }
+    const rawSrc = preserveFormatting
+      ? css.slice(atStart, lexer.pos)
+      : undefined;
     return pos<CssImportAST>({
       type: CssTypes.import,
       import: m[1].trim(),
+      ...(rawSrc ? { rawSource: rawSrc } : {}),
     } as unknown as CssImportAST) as CssImportAST;
   }
 
@@ -1126,13 +1380,18 @@ export const parse = (
    */
   function atCharset(): CssCharsetAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_atCharset);
     if (!m) {
       return;
     }
+    const rawSrc = preserveFormatting
+      ? css.slice(atStart, lexer.pos)
+      : undefined;
     return pos<CssCharsetAST>({
       type: CssTypes.charset,
       charset: m[1].trim(),
+      ...(rawSrc ? { rawSource: rawSrc } : {}),
     } as unknown as CssCharsetAST) as CssCharsetAST;
   }
 
@@ -1141,13 +1400,18 @@ export const parse = (
    */
   function atNamespace(): CssNamespaceAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_atNamespace);
     if (!m) {
       return;
     }
+    const rawSrc = preserveFormatting
+      ? css.slice(atStart, lexer.pos)
+      : undefined;
     return pos<CssNamespaceAST>({
       type: CssTypes.namespace,
       namespace: m[1].trim(),
+      ...(rawSrc ? { rawSource: rawSrc } : {}),
     } as unknown as CssNamespaceAST) as CssNamespaceAST;
   }
 
@@ -1157,6 +1421,7 @@ export const parse = (
    */
   function atGeneric(): CssGenericAtRuleAST | undefined {
     const pos = position();
+    const atStart = preserveFormatting ? lexer.pos : 0;
     const m = lexer.matchRegex(re_genericAtRule);
     if (!m) {
       return;
@@ -1175,8 +1440,12 @@ export const parse = (
     }
 
     // Block at-rule
-    if (open()) {
-      const style = rulesOrDeclarations();
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
+    const { ok: opened, afterOpen } = openWithPos();
+    if (opened) {
+      const style = rulesOrDeclarations(
+        preserveFormatting ? afterOpen : undefined,
+      );
 
       if (!close()) {
         return error(`@${name} missing '}'`);
@@ -1187,6 +1456,9 @@ export const parse = (
         name: name,
         prelude: prelude,
         rules: style,
+        ...(preserveFormatting
+          ? { rawPrelude: css.slice(atStart, braceOffset) }
+          : {}),
       });
     }
 
@@ -1239,17 +1511,24 @@ export const parse = (
    */
   function rule() {
     const pos = position();
+    const ruleStart = preserveFormatting ? lexer.pos : 0;
     const sel = selector();
 
     if (!sel) {
       return error('selector missing');
     }
+    const braceOffset = preserveFormatting ? lexer.pos : 0;
     comments();
+
+    const body = ruleBody();
 
     return pos<CssRuleAST>({
       type: CssTypes.rule,
       selectors: sel,
-      declarations: ruleBody() || [],
+      declarations: body?.items || [],
+      ...(preserveFormatting
+        ? { rawPrelude: css.slice(ruleStart, braceOffset) }
+        : {}),
     });
   }
 

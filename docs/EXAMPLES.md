@@ -245,6 +245,53 @@ console.log(formatted);
 // }
 ```
 
+### Identity Round-Trip
+
+Reproduce the original CSS exactly as it was written, preserving all whitespace,
+comments, and formatting:
+
+```javascript
+import { parse, stringify } from '@adobe/css-tools';
+
+const css = `body  {
+  font-size:  12px;
+  color:  #333;
+}`;
+
+// Parse with preserveFormatting to store original source
+const ast = parse(css, { preserveFormatting: true });
+
+// Stringify with identity mode
+const output = stringify(ast, { identity: true });
+console.log(output === css); // true — exact round-trip
+```
+
+### Removing Empty Rules
+
+```javascript
+import { parse, stringify } from '@adobe/css-tools';
+
+const css = `
+  .unused {}
+  .active { color: red; }
+`;
+
+const ast = parse(css);
+
+// Remove empty rules in beautified output
+const output = stringify(ast, { removeEmptyRules: true });
+console.log(output);
+// Output:
+// .active {
+//   color: red;
+// }
+
+// Also works with compressed mode
+const compressed = stringify(ast, { compress: true, removeEmptyRules: true });
+console.log(compressed);
+// Output: .active{color:red;}
+```
+
 ## Working with Complex CSS
 
 ### Nested Rules and At-Rules

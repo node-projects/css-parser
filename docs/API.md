@@ -22,6 +22,7 @@ Parses CSS code and returns an Abstract Syntax Tree (AST).
 - `options` (object, optional) - Parsing options
   - `silent` (boolean) - Silently fail on parse errors instead of throwing. When `true`, errors are collected in `ast.stylesheet.parsingErrors`
   - `source` (string) - File path for better error reporting
+  - `preserveFormatting` (boolean) - Insert whitespace AST nodes and store raw formatting properties on nodes for identity round-trip. When `true`, whitespace between siblings is preserved as `CssWhitespaceAST` nodes, and raw formatting properties (`rawPrelude`, `rawBetween`, `rawValue`, `rawSource`) are stored on relevant nodes. Default: `false`
 
 #### Returns
 
@@ -53,6 +54,8 @@ Converts a CSS AST back to CSS string with configurable formatting.
 - `options` (CompilerOptions, optional) - Stringification options
   - `indent` (string) - Indentation string (default: `'  '`)
   - `compress` (boolean) - Whether to compress/minify the output (default: `false`)
+  - `identity` (boolean) - Reproduce the original CSS exactly as parsed. Requires `preserveFormatting: true` during parsing. Walks the AST including whitespace nodes and uses raw formatting properties to reconstruct the original output. Inserted or modified nodes without raw properties are emitted in beautified format. Falls back to beautified output when `preserveFormatting` was not used. Default: `false`
+  - `removeEmptyRules` (boolean) - Remove rules with empty declaration blocks from the output. Works in all modes (beautified, compressed, identity). Default: `false`
 
 #### Returns
 
@@ -92,7 +95,7 @@ type CssStylesheetAST = {
   type: CssTypes.stylesheet;
   stylesheet: {
     source?: string;
-    rules: CssRuleAST[];
+    rules: Array<CssAtRuleAST | CssWhitespaceAST>;
     parsingErrors?: CssParseError[];
   };
 };
@@ -188,8 +191,10 @@ Options for the stringifier.
 
 ```typescript
 type CompilerOptions = {
-  indent?: string;    // Default: '  '
-  compress?: boolean; // Default: false
+  indent?: string;          // Default: '  '
+  compress?: boolean;       // Default: false
+  identity?: boolean;       // Default: false
+  removeEmptyRules?: boolean; // Default: false
 };
 ```
 
@@ -288,6 +293,49 @@ console.log(formatted);
 const compressed = stringify(ast, { compress: true });
 console.log(compressed);
 // Output: .example{color:red;font-size:16px}
+```
+
+### Identity Round-Trip
+
+Reproduce the original CSS exactly as it was written, preserving all whitespace, comments, and formatting:
+
+```javascript
+import { parse, stringify } from '@adobe/css-tools';
+
+const css = '.example  {  color:  red;  font-size:16px  }';
+
+// Parse with preserveFormatting to store original source
+const ast = parse(css, { preserveFormatting: true });
+
+// Stringify with identity mode to reproduce the original CSS
+const output = stringify(ast, { identity: true });
+console.log(output === css); // true
+```
+
+When `preserveFormatting` was not used during parsing, identity mode falls back to beautified output.
+
+### Removing Empty Rules
+
+Strip rules with empty declaration blocks from the output:
+
+```javascript
+import { parse, stringify } from '@adobe/css-tools';
+
+const css = '.empty {} .keep { color: red; }';
+const ast = parse(css);
+
+// Beautified without empty rules
+const output = stringify(ast, { removeEmptyRules: true });
+console.log(output);
+// Output:
+// .keep {
+//   color: red;
+// }
+
+// Also works with compressed mode
+const compressed = stringify(ast, { compress: true, removeEmptyRules: true });
+console.log(compressed);
+// Output: .keep{color:red;}
 ```
 
 ## TypeScript Integration
