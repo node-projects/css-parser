@@ -2,7 +2,7 @@
 
 > A modern CSS parser and stringifier with TypeScript support
 
-[![npm version](https://badge.fury.io/js/%40adobe%2Fcss-tools.svg)](https://badge.fury.io/js/%40adobe%2Fcss-tools)
+[![npm version](https://badge.fury.io/js/%40node-projects%2Fcss-parser.svg)](https://badge.fury.io/js/%40node-projects%2Fcss-parser)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Parse CSS into an Abstract Syntax Tree (AST) and convert it back to CSS with configurable formatting. Built with TypeScript for type safety and modern JavaScript features.
