@@ -44,6 +44,35 @@ stringify(ast3, { removeEmptyRules: true })
 // => ".keep {\n  color: red;\n}"
 ```
 
+## Editing Declarations
+
+When you parse with `preserveFormatting: true`, existing declaration nodes can contain both `value` and `rawValue`.
+
+- `value` is the normalized declaration value. The parser trims it and removes inline comments. Use it for analysis, transforms, and normal `stringify()` output.
+- `rawValue` is the original source text between the `:` and the terminating `;` or `}`. It keeps literal formatting and comments, and `stringify(ast, { identity: true })` prefers it over `value`.
+
+If you update an existing declaration and then stringify in identity mode, update `rawValue` too, or remove it so the stringifier falls back to `value`:
+
+```js
+const ast = parse('body { color:  red /* keep */; }', {
+  preserveFormatting: true,
+})
+const rule = ast.stylesheet.rules[0]
+const decl = rule.declarations.find(
+  (node) => node.type === 'declaration' && node.property === 'color',
+)
+
+if (decl) {
+  decl.value = 'blue'
+  decl.rawValue = 'blue /* keep */'
+
+  // Or, if you only care about the semantic value:
+  // delete decl.rawValue
+}
+```
+
+For new declarations, `value` is usually enough. Only set `rawValue` when you want to control the exact literal text used by identity mode.
+
 ## API
 
 ### `parse(code, options?)`

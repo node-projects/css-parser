@@ -266,4 +266,39 @@ describe('identity mode preserves existing formatting', () => {
     const output = stringify(ast, { identity: true });
     expect(output).toBe(css);
   });
+
+  it('should prefer rawValue over value for existing declarations', () => {
+    const css = '.foo {\n  color:  red /* keep */;\n}\n';
+    const ast = parse(css, { preserveFormatting: true });
+
+    const rule = ast.stylesheet.rules.find(
+      (r) => r.type === CssTypes.rule,
+    ) as CssRuleAST;
+    const declaration = rule.declarations.find(
+      (d) => d.type === CssTypes.declaration,
+    ) as CssDeclarationAST;
+
+    declaration.value = 'blue';
+
+    const output = stringify(ast, { identity: true });
+    expect(output).toBe(css);
+  });
+
+  it('should fall back to value when rawValue is removed', () => {
+    const css = '.foo {\n  color:  red /* keep */;\n}\n';
+    const ast = parse(css, { preserveFormatting: true });
+
+    const rule = ast.stylesheet.rules.find(
+      (r) => r.type === CssTypes.rule,
+    ) as CssRuleAST;
+    const declaration = rule.declarations.find(
+      (d) => d.type === CssTypes.declaration,
+    ) as CssDeclarationAST;
+
+    declaration.value = 'blue';
+    delete declaration.rawValue;
+
+    const output = stringify(ast, { identity: true });
+    expect(output).toBe('.foo {\n  color:  blue;\n}\n');
+  });
 });
